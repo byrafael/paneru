@@ -3,8 +3,8 @@ use std::time::Duration;
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 
-use crate::commands::{Command, MouseMove, MoveFocus, Operation};
-use crate::config::Config;
+use crate::commands::{Command, Direction, MouseMove, MoveFocus, Operation};
+use crate::config::{Config, MainOptions};
 use crate::ecs::layout::LayoutStrip;
 use crate::ecs::{ActiveWorkspaceMarker, DockPosition, RefreshWindowSizes, Timeout};
 use crate::events::Event;
@@ -474,6 +474,84 @@ fn test_wake_refreshes_active_workspace() {
                 refreshed,
                 "wake should mark the active workspace for a window-size refresh"
             );
+        })
+        .run(commands);
+}
+
+/// With `display_fallthrough = false`, a north swap that finds no window above
+/// must be a no-op instead of silently flinging the window to the display
+/// above. This keeps each screen a self-contained desktop; windows may only
+/// cross via the explicit `window_nextdisplay*` bindings.
+#[test]
+fn test_swap_north_does_not_leave_display_when_fallthrough_disabled() {
+    let mut options = MainOptions::default();
+    options.display_fallthrough = Some(false);
+    let config: Config = (options, vec![]).into();
+
+    let commands = vec![
+        Event::MenuOpened { window_id: 0 },
+        Event::Command {
+            command: Command::PrintState,
+        },
+        Event::Command {
+            command: Command::Window(Operation::Swap(Direction::North)),
+        },
+        Event::Command {
+            command: Command::PrintState,
+        },
+    ];
+
+    TestHarness::new()
+        .with_config(config)
+        .with_windows(1)
+        // Display placed ABOVE the active one, so the fallthrough guard in
+        // `command_swap_focus` (bounds.min.y > other.min.y) would otherwise fire.
+        .with_display(
+            EXT_DISPLAY_ID,
+            IRect::new(0, -EXT_DISPLAY_HEIGHT, EXT_DISPLAY_WIDTH, 0),
+            vec![EXT_WORKSPACE_ID],
+        )
+        .on_iteration(1, move |world, _state| {
+            assert_on_workspace!(world, 0, TEST_WORKSPACE_ID);
+        })
+        .on_iteration(2, move |world, state| {
+            assert_on_workspace!(world, 0, TEST_WORKSPACE_ID);
+            assert_not_on_workspace!(world, 0, EXT_WORKSPACE_ID);
+            assert_eq!(state.active_display(), TEST_DISPLAY_ID);
+        })
+        .run(commands);
+}
+
+/// The same swap WITH fallthrough left at its default must still cross to the
+/// display above, so the new option cannot regress upstream behaviour.
+#[test]
+fn test_swap_north_still_leaves_display_by_default() {
+    let commands = vec![
+        Event::MenuOpened { window_id: 0 },
+        Event::Command {
+            command: Command::PrintState,
+        },
+        Event::Command {
+            command: Command::Window(Operation::Swap(Direction::North)),
+        },
+        Event::Command {
+            command: Command::PrintState,
+        },
+    ];
+
+    TestHarness::new()
+        .with_windows(1)
+        .with_display(
+            EXT_DISPLAY_ID,
+            IRect::new(0, -EXT_DISPLAY_HEIGHT, EXT_DISPLAY_WIDTH, 0),
+            vec![EXT_WORKSPACE_ID],
+        )
+        .on_iteration(1, move |world, _state| {
+            assert_on_workspace!(world, 0, TEST_WORKSPACE_ID);
+        })
+        .on_iteration(2, move |world, _state| {
+            assert_on_workspace!(world, 0, EXT_WORKSPACE_ID);
+            assert_not_on_workspace!(world, 0, TEST_WORKSPACE_ID);
         })
         .run(commands);
 }

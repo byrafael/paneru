@@ -326,6 +326,7 @@ fn command_move_focus(
     workspaces: Query<(&LayoutStrip, Entity, Option<&NativeFullscreenMarker>)>,
     active_display: ActiveDisplay,
     window_manager: Res<WindowManager>,
+    config: Res<Config>,
     mut commands: Commands,
 ) {
     let Some(Operation::Focus(direction)) =
@@ -425,6 +426,9 @@ fn command_move_focus(
     }
 
     // Check if the movement can switch to another display.
+    if !config.display_fallthrough() {
+        return;
+    }
     let Some(other_display) = active_display.other().next() else {
         return;
     };
@@ -643,6 +647,7 @@ fn command_swap_focus(
     mut messages: MessageReader<Event>,
     windows: Windows,
     mut active_display: ActiveDisplayMut,
+    config: Res<Config>,
     mut commands: Commands,
 ) {
     let Some(Operation::Swap(direction)) =
@@ -699,6 +704,9 @@ fn command_swap_focus(
         .is_none()
     {
         // Check if the movement can swap to another display.
+        if !config.display_fallthrough() {
+            return;
+        }
         let bounds = active_display.bounds();
         let Some(other_display) = active_display.other().next() else {
             return;

@@ -831,6 +831,12 @@ impl Config {
         self.options().auto_center.is_some_and(|center| center)
     }
 
+    /// Whether north/south focus and swap may spill onto another display.
+    /// Defaults to `true`, matching upstream behaviour.
+    pub fn display_fallthrough(&self) -> bool {
+        self.options().display_fallthrough.is_none_or(|spill| spill)
+    }
+
     pub fn horizontal_mouse_warp(&self) -> Option<i16> {
         self.options().horizontal_mouse_warp
     }
@@ -1094,6 +1100,11 @@ pub struct MainOptions {
     pub mouse_follows_focus: Option<bool>,
     /// Warps the mouse to the closest screen when at the edge.
     pub horizontal_mouse_warp: Option<i16>,
+    /// When `true` (default), directional focus/swap commands that find no
+    /// window above or below fall through to the neighbouring display. Set
+    /// `false` to treat every display as a self-contained desktop, so windows
+    /// only cross screens via the explicit `window_nextdisplay*` bindings.
+    pub display_fallthrough: Option<bool>,
     /// Vertical pixel offset applied to the warp landing position, signed by
     /// warp direction. Use to compensate for physical desk arrangement
     /// differing from the macOS arrangement (e.g. portrait monitor sitting
