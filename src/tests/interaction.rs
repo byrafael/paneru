@@ -1936,3 +1936,73 @@ fn test_stack_unstack_brings_focused_window_into_view() {
         })
         .run(commands);
 }
+
+/// A swipe that comes to rest leaving a window hanging slightly over the
+/// display edge must pull it fully into view on its own — previously only a
+/// click did that, so the window sat partly off-screen until it was clicked.
+/// A window scrolled mostly off-screen must be left where it is.
+#[test]
+fn test_swipe_snaps_settled_window_into_view() {
+    fn config(sensitivity: f64) -> Config {
+        (
+            MainOptions {
+                auto_center: Some(false),
+                animation_speed: Some(10000.0),
+                swipe_gesture_fingers: Some(3),
+                swipe_sensitivity: Some(sensitivity),
+                ..Default::default()
+            },
+            vec![],
+        )
+            .into()
+    }
+
+    let commands = |delta: f64| {
+        vec![
+            Event::MenuOpened { window_id: 0 },
+            Event::Swipe { delta, fingers: 3 },
+            // Noop iterations: the finger-lift timeout fires and the strip settles.
+            Event::MenuOpened { window_id: 0 },
+            Event::MenuOpened { window_id: 0 },
+            Event::MenuOpened { window_id: 0 },
+        ]
+    };
+
+    // Gentle swipe: window 0 only overhangs, so it snaps flush to the edge.
+    TestHarness::new()
+        .with_config(config(0.1))
+        .with_windows(5)
+        .on_iteration(0, |_world, state| {
+            // Park the cursor near the left edge, over the window that the
+            // swipe leaves hanging there.
+            state.set_cursor_position(IVec2::new(50, 400));
+        })
+        .on_iteration(4, |world, _state| {
+            let entity = find_window_entity(0, world);
+            let frame = world.get::<Window>(entity).expect("window").frame();
+            assert_eq!(
+                frame.min.x, 0,
+                "a slightly overhanging window must snap flush to the edge, got {frame:?}"
+            );
+        })
+        .run(commands(0.15));
+
+    // Hard swipe: window 0 is scrolled well past the edge and must stay there.
+    TestHarness::new()
+        .with_config(config(1.0))
+        .with_windows(5)
+        .on_iteration(0, |_world, state| {
+            // Park the cursor near the left edge, over the window that the
+            // swipe leaves hanging there.
+            state.set_cursor_position(IVec2::new(50, 400));
+        })
+        .on_iteration(4, |world, _state| {
+            let entity = find_window_entity(0, world);
+            let frame = world.get::<Window>(entity).expect("window").frame();
+            assert!(
+                frame.min.x < -(TEST_WINDOW_WIDTH / 4),
+                "a window scrolled past must not be dragged back, got {frame:?}"
+            );
+        })
+        .run(commands(0.3));
+}

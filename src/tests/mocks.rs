@@ -335,6 +335,11 @@ impl MockState {
         });
     }
 
+    #[allow(unused)]
+    pub fn set_cursor_position(&self, point: IVec2) {
+        self.inner.force_write().cursor_position = point;
+    }
+
     pub fn cursor_position(&self) -> IVec2 {
         self.inner.force_read().cursor_position
     }

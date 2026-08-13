@@ -16,11 +16,12 @@ use crate::ecs::layout::{Column, LayoutStrip};
 use crate::ecs::params::{ActiveDisplay, Windows};
 use crate::ecs::{
     ActiveWorkspaceMarker, MissionControlActive, Position, Scrolling, SendMessageTrigger,
+    SpawnCommandsExt,
 };
 use crate::errors::Result;
 use crate::events::Event;
 use crate::manager::{Window, WindowManager};
-use crate::platform::Modifiers;
+use crate::platform::{Modifiers, WinID};
 
 pub struct ScrollEventsPlugin;
 
@@ -157,7 +158,9 @@ fn swipe_gesture(
 pub(super) fn swiping_timeout(
     strips: Populated<(Entity, &mut Scrolling), With<LayoutStrip>>,
     active_display: ActiveDisplay,
+    windows: Windows,
     time: Res<Time>,
+    config: Res<Config>,
     window_manager: Res<WindowManager>,
     mut commands: Commands,
 ) {
@@ -170,12 +173,29 @@ pub(super) fn swiping_timeout(
         if time.elapsed().abs_diff(scroll.last_event) > FINGER_LIFT_THRESHOLD {
             scroll.is_user_swiping = false;
 
+            let cursor = window_manager.cursor_position();
             if scroll.velocity.abs() * dt * viewport_width < MIN_VELOCITY_PX
                 && let Ok(mut entity_commands) = commands.get_entity(entity)
             {
                 entity_commands.try_remove::<Scrolling>();
+
+                // The strip has come to rest. A window left hanging slightly
+                // over a display edge is awkward to use, and until now only a
+                // click nudged it in. Do that same nudge here, on the window
+                // the user would have clicked, so a swipe lands on a fully
+                // visible window without the extra click.
+                if let Some(target) = snap_target(
+                    &windows,
+                    cursor.as_ref().and_then(|point| {
+                        window_manager.find_window_at_point(point).ok()
+                    }),
+                    active_display.actual_bounds(&config),
+                    config.swipe_snap_ratio(),
+                ) {
+                    commands.reshuffle_around(target);
+                }
             }
-            if let Some(point) = window_manager.cursor_position() {
+            if let Some(point) = cursor {
                 commands.trigger(SendMessageTrigger(Event::MouseMoved {
                     point,
                     modifiers: Modifiers::empty(),
@@ -183,6 +203,34 @@ pub(super) fn swiping_timeout(
             }
         }
     }
+}
+
+/// The window a settled swipe should snap fully into view: the one under the
+/// cursor, if it is hanging over a viewport edge by no more than `snap_ratio`
+/// of its width. A window already fully visible needs no snap, and one hidden
+/// by more than the ratio is one the user scrolled past rather than landed on,
+/// so dragging it back would undo their swipe. `snap_ratio` of 0.0 disables
+/// the behaviour entirely.
+fn snap_target(
+    windows: &Windows,
+    under_cursor: Option<WinID>,
+    viewport: IRect,
+    snap_ratio: f64,
+) -> Option<Entity> {
+    if snap_ratio <= 0.0 {
+        return None;
+    }
+    let (_, entity) = windows.find_managed(under_cursor?)?;
+    let frame = windows.moving_frame(entity)?;
+    let width = frame.width();
+    if width <= 0 {
+        return None;
+    }
+    let hidden = width - viewport.intersect(frame).width();
+    if hidden <= 0 {
+        return None;
+    }
+    (f64::from(hidden) / f64::from(width) <= snap_ratio).then_some(entity)
 }
 
 #[allow(clippy::needless_pass_by_value)]

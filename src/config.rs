@@ -711,6 +711,17 @@ impl Config {
             .unwrap_or(true)
     }
 
+    /// Largest hidden fraction of a window that a settled swipe still snaps
+    /// fully into view. 0.0 disables snapping. Default: 0.25.
+    pub fn swipe_snap_ratio(&self) -> f64 {
+        self.inner()
+            .swipe
+            .as_ref()
+            .and_then(|swipe| swipe.snap_ratio)
+            .unwrap_or(0.25)
+            .clamp(0.0, 1.0)
+    }
+
     pub fn swipe_deceleration(&self) -> f64 {
         let config = self.inner();
         config

@@ -23,6 +23,17 @@ pub struct SwipeOptions {
     #[allow(dead_code)]
     pub continuous: Option<bool>,
 
+    /// After a swipe settles, slide the strip so that a window left hanging
+    /// slightly over a display edge becomes fully visible, snapping it to that
+    /// edge. This is the movement a click on a partially hidden window
+    /// performs, minus the click.
+    ///
+    /// The value is the largest hidden fraction that still counts as "just
+    /// overhanging": a window hidden by more than this is left alone, so
+    /// scrolling past windows still works. Range 0.0–1.0, where 0.0 disables
+    /// the snap entirely. Default: 0.25.
+    pub snap_ratio: Option<f64>,
+
     pub gesture: Option<GestureOptions>,
     pub scroll: Option<ScrollOptions>,
 }
