@@ -3,7 +3,7 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::message::MessageReader;
 use bevy::ecs::query::{With, Without};
 use bevy::ecs::schedule::IntoScheduleConfigs as _;
-use bevy::ecs::system::{Commands, Local, Populated, Res, Single};
+use bevy::ecs::system::{Commands, Local, Populated, Query, Res, Single};
 use bevy::math::IRect;
 use bevy::time::Time;
 use std::time::{Duration, Instant};
@@ -16,7 +16,7 @@ use crate::ecs::layout::{Column, LayoutStrip};
 use crate::ecs::params::{ActiveDisplay, Windows};
 use crate::ecs::{
     ActiveWorkspaceMarker, MissionControlActive, Position, Scrolling, SendMessageTrigger,
-    SpawnCommandsExt,
+    SnapPending, SpawnCommandsExt,
 };
 use crate::errors::Result;
 use crate::events::Event;
@@ -43,7 +43,9 @@ impl Plugin for ScrollEventsPlugin {
                     apply_scrolling_constraints,
                     swiping_timeout,
                 )
-                    .chain(),
+                    .chain()
+                    .before(snap_settled_strip),
+                snap_settled_strip,
             ),
         );
     }
@@ -108,6 +110,12 @@ fn swipe_gesture(
 
     let (entity, position, scrolling) = &mut *active_workspace;
 
+    // The gesture is alive again, so any snap queued by an earlier lull is
+    // stale: drop it rather than let it fire mid-swipe.
+    if let Ok(mut entity_commands) = commands.get_entity(*entity) {
+        entity_commands.try_remove::<SnapPending>();
+    }
+
     if touchpad_down && let Some(scrolling) = scrolling.as_mut() {
         scrolling.velocity = 0.0;
         scrolling.is_user_swiping = true;
@@ -158,9 +166,7 @@ fn swipe_gesture(
 pub(super) fn swiping_timeout(
     strips: Populated<(Entity, &mut Scrolling), With<LayoutStrip>>,
     active_display: ActiveDisplay,
-    windows: Windows,
     time: Res<Time>,
-    config: Res<Config>,
     window_manager: Res<WindowManager>,
     mut commands: Commands,
 ) {
@@ -179,21 +185,14 @@ pub(super) fn swiping_timeout(
             {
                 entity_commands.try_remove::<Scrolling>();
 
-                // The strip has come to rest. A window left hanging slightly
-                // over a display edge is awkward to use, and until now only a
-                // click nudged it in. Do that same nudge here, on the window
-                // the user would have clicked, so a swipe lands on a fully
-                // visible window without the extra click.
-                if let Some(target) = snap_target(
-                    &windows,
-                    cursor.as_ref().and_then(|point| {
-                        window_manager.find_window_at_point(point).ok()
-                    }),
-                    active_display.actual_bounds(&config),
-                    config.swipe_snap_ratio(),
-                ) {
-                    commands.reshuffle_around(target);
-                }
+                // The strip has come to rest, but a swipe often stalls for a
+                // moment mid-gesture before the user flicks it on again.
+                // Record when it settled and let `snap_settled_strip` decide
+                // later, once the strip has stayed quiet long enough to be
+                // sure the gesture is really over.
+                entity_commands.try_insert(SnapPending {
+                    settled_at: time.elapsed(),
+                });
             }
             if let Some(point) = cursor {
                 commands.trigger(SendMessageTrigger(Event::MouseMoved {
@@ -201,6 +200,51 @@ pub(super) fn swiping_timeout(
                     modifiers: Modifiers::empty(),
                 }));
             }
+        }
+    }
+}
+
+/// Snaps a window that a finished swipe left hanging over a display edge,
+/// once the strip has stayed at rest for `swipe.snap_delay_ms`. The delay is
+/// what keeps this from firing on the brief pauses in the middle of a gesture:
+/// any new scroll event re-inserts `Scrolling` and clears the pending mark, so
+/// only a genuinely finished swipe ever reaches the snap.
+#[allow(clippy::needless_pass_by_value, clippy::too_many_arguments)]
+#[instrument(level = Level::TRACE, skip_all)]
+fn snap_settled_strip(
+    pending: Populated<(Entity, &SnapPending), Without<Scrolling>>,
+    moving: Query<(), With<Scrolling>>,
+    windows: Windows,
+    active_display: ActiveDisplay,
+    time: Res<Time>,
+    config: Res<Config>,
+    window_manager: Res<WindowManager>,
+    mut commands: Commands,
+) {
+    let snap_delay = config.swipe_snap_delay();
+
+    for (entity, snap_pending) in pending {
+        if time.elapsed().abs_diff(snap_pending.settled_at) < snap_delay {
+            continue;
+        }
+        if let Ok(mut entity_commands) = commands.get_entity(entity) {
+            entity_commands.try_remove::<SnapPending>();
+        }
+        // Another strip is still moving: snapping now would fight it.
+        if !moving.is_empty() {
+            continue;
+        }
+
+        if let Some(target) = snap_target(
+            &windows,
+            window_manager
+                .cursor_position()
+                .as_ref()
+                .and_then(|point| window_manager.find_window_at_point(point).ok()),
+            active_display.actual_bounds(&config),
+            config.swipe_snap_ratio(),
+        ) {
+            commands.reshuffle_around(target);
         }
     }
 }

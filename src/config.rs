@@ -722,6 +722,18 @@ impl Config {
             .clamp(0.0, 1.0)
     }
 
+    /// How long the strip must stay at rest after a swipe before the snap
+    /// fires. Default: 400ms.
+    pub fn swipe_snap_delay(&self) -> Duration {
+        Duration::from_millis(
+            self.inner()
+                .swipe
+                .as_ref()
+                .and_then(|swipe| swipe.snap_delay_ms)
+                .unwrap_or(400),
+        )
+    }
+
     pub fn swipe_deceleration(&self) -> f64 {
         let config = self.inner();
         config
@@ -943,6 +955,24 @@ impl TryFrom<&str> for Config {
         Ok(Config {
             inner: Arc::new(ArcSwap::from_pointee(InnerConfig::new(input)?)),
         })
+    }
+}
+
+#[cfg(test)]
+impl From<(MainOptions, Vec<WindowParams>, swipe::SwipeOptions)> for Config {
+    fn from((options, params, swipe): (MainOptions, Vec<WindowParams>, swipe::SwipeOptions)) -> Self {
+        Self {
+            inner: Arc::new(ArcSwap::from_pointee(InnerConfig {
+                options,
+                swipe: Some(swipe),
+                windows: params
+                    .into_iter()
+                    .enumerate()
+                    .map(|(nr, param)| Some((format!("param{nr}"), param)))
+                    .collect(),
+                ..Default::default()
+            })),
+        }
     }
 }
 

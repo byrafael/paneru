@@ -61,6 +61,7 @@ Configure trackpad gestures and scroll-wheel window sliding.
 | `sensitivity` | Float (0.1–2.0) | `0.35` | Multiplier for swipe distance. |
 | `deceleration` | Float (1.0–10.0) | `4.0` | Rate at which inertia slows down after a swipe. |
 | `continuous` | Boolean | `true` | If `true`, the windows are allowed to fully move across the desktop, potentially exposing the empty desktop space. If `false`, the window strip will not move further than the left or right most window. This also affects the windows during keyboard focus - if `false` the left or right most windows will snap to the edge of display. |
+| `snap_delay_ms` | Integer | `400` | How long the strip must sit still after a swipe before `snap_ratio` snaps a window into view. Swipes routinely stall for a moment before being flicked on again, and snapping during such a lull yanks the strip mid-gesture; the delay waits those pauses out. Raise it if snapping feels eager. |
 | `snap_ratio` | Float (0.0–1.0) | `0.25` | Once a swipe settles, if the window under the cursor is hanging over a display edge by no more than this fraction of its width, the strip slides so that window becomes fully visible (the same movement a click on it performs, without the click). Windows hidden by more than this are left alone, so scrolling past windows still works. Set to `0.0` to disable. |
 
 ### `[swipe.gesture]`

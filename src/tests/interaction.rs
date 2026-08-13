@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use objc2_core_foundation::CGPoint;
 
 use crate::commands::{Command, Direction, MoveFocus, Operation};
+use crate::config::swipe::SwipeOptions;
 use crate::config::{Config, MainOptions, WindowParams, parse_command};
 use crate::ecs::display::FloatingLayer;
 use crate::ecs::{
@@ -1943,7 +1944,13 @@ fn test_stack_unstack_brings_focused_window_into_view() {
 /// A window scrolled mostly off-screen must be left where it is.
 #[test]
 fn test_swipe_snaps_settled_window_into_view() {
-    fn config(sensitivity: f64) -> Config {
+    // Park the cursor near the left edge, over the window the swipe leaves
+    // hanging there.
+    fn park_cursor(_world: &mut World, state: MockState) {
+        state.set_cursor_position(IVec2::new(50, 400));
+    }
+
+    fn config(sensitivity: f64, snap_delay_ms: u64) -> Config {
         (
             MainOptions {
                 auto_center: Some(false),
@@ -1953,30 +1960,33 @@ fn test_swipe_snaps_settled_window_into_view() {
                 ..Default::default()
             },
             vec![],
+            SwipeOptions {
+                snap_delay_ms: Some(snap_delay_ms),
+                ..Default::default()
+            },
         )
             .into()
     }
 
+    // The harness advances the clock 100ms per update and runs 5 updates per
+    // event, so one event is ~500ms of virtual time.
     let commands = |delta: f64| {
         vec![
             Event::MenuOpened { window_id: 0 },
             Event::Swipe { delta, fingers: 3 },
-            // Noop iterations: the finger-lift timeout fires and the strip settles.
+            // Noop iterations: the strip settles, then the snap delay elapses.
             Event::MenuOpened { window_id: 0 },
             Event::MenuOpened { window_id: 0 },
             Event::MenuOpened { window_id: 0 },
         ]
     };
 
-    // Gentle swipe: window 0 only overhangs, so it snaps flush to the edge.
+    // Gentle swipe: window 0 only overhangs, so it snaps flush to the edge
+    // once the strip has been still for longer than the snap delay.
     TestHarness::new()
-        .with_config(config(0.1))
+        .with_config(config(0.1, 100))
         .with_windows(5)
-        .on_iteration(0, |_world, state| {
-            // Park the cursor near the left edge, over the window that the
-            // swipe leaves hanging there.
-            state.set_cursor_position(IVec2::new(50, 400));
-        })
+        .on_iteration(0, park_cursor)
         .on_iteration(4, |world, _state| {
             let entity = find_window_entity(0, world);
             let frame = world.get::<Window>(entity).expect("window").frame();
@@ -1987,15 +1997,28 @@ fn test_swipe_snaps_settled_window_into_view() {
         })
         .run(commands(0.15));
 
+    // Same gentle swipe, but with a snap delay longer than the whole test
+    // run: the strip must be left exactly where the swipe put it. This is the
+    // mid-gesture lull case — a pause must never trigger a snap.
+    TestHarness::new()
+        .with_config(config(0.1, 60_000))
+        .with_windows(5)
+        .on_iteration(0, park_cursor)
+        .on_iteration(4, |world, _state| {
+            let entity = find_window_entity(0, world);
+            let frame = world.get::<Window>(entity).expect("window").frame();
+            assert!(
+                frame.min.x < 0,
+                "a pause shorter than the snap delay must not snap, got {frame:?}"
+            );
+        })
+        .run(commands(0.15));
+
     // Hard swipe: window 0 is scrolled well past the edge and must stay there.
     TestHarness::new()
-        .with_config(config(1.0))
+        .with_config(config(1.0, 100))
         .with_windows(5)
-        .on_iteration(0, |_world, state| {
-            // Park the cursor near the left edge, over the window that the
-            // swipe leaves hanging there.
-            state.set_cursor_position(IVec2::new(50, 400));
-        })
+        .on_iteration(0, park_cursor)
         .on_iteration(4, |world, _state| {
             let entity = find_window_entity(0, world);
             let frame = world.get::<Window>(entity).expect("window").frame();

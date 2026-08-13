@@ -231,6 +231,16 @@ pub struct ReshuffleAroundMarker;
 #[derive(Component)]
 pub struct EnsureVisibleMarker;
 
+/// Set on a layout strip when a swipe has stopped moving it, recording when
+/// that happened. The snap-into-view only fires once the strip has stayed
+/// quiet for `swipe.snap_delay_ms` afterwards; any new swipe event removes the
+/// component, so a momentary pause mid-gesture never triggers a snap.
+#[derive(Component, Debug)]
+pub struct SnapPending {
+    /// Time (on bevy's clock) at which the strip came to rest.
+    pub settled_at: Duration,
+}
+
 #[derive(Component, Debug)]
 pub struct Scrolling {
     pub velocity: f64,

@@ -34,6 +34,13 @@ pub struct SwipeOptions {
     /// the snap entirely. Default: 0.25.
     pub snap_ratio: Option<f64>,
 
+    /// How long (milliseconds) the strip must sit still after a swipe before
+    /// `snap_ratio` snaps a window into view. Swipes routinely stall for a
+    /// moment before the user flicks them on again, and snapping during such a
+    /// lull yanks the strip mid-gesture; the delay waits out those pauses.
+    /// Raise it if snapping still feels eager. Default: 400.
+    pub snap_delay_ms: Option<u64>,
+
     pub gesture: Option<GestureOptions>,
     pub scroll: Option<ScrollOptions>,
 }
