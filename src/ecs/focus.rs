@@ -10,6 +10,7 @@ use bevy::ecs::query::{Added, Has, With};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs as _;
 use bevy::ecs::system::{Commands, Populated, Query, Res, Single};
+use bevy::math::IRect;
 use bevy::prelude::Event as BevyEvent;
 use bevy::time::common_conditions::on_timer;
 use tracing::{Level, debug, error, instrument, trace, warn};
@@ -17,10 +18,11 @@ use tracing::{Level, debug, error, instrument, trace, warn};
 use super::{FocusedMarker, MouseHeldMarker, SystemTheme, Unmanaged};
 use crate::config::Config;
 use crate::ecs::layout::LayoutStrip;
-use crate::ecs::params::{ActiveDisplay, GlobalState, Windows};
+use crate::ecs::params::{ActiveDisplay, GlobalState, WindowCtx, Windows};
 use crate::ecs::workspace::RestoreFocusMarker;
 use crate::ecs::{
-    ActiveWorkspaceMarker, Scrolling, SendMessageTrigger, SpawnCommandsExt, StrayFocusEvent,
+    ActiveWorkspaceMarker, Bounds, Position, RaiseWindow, Scrolling, SendMessageTrigger,
+    SpawnCommandsExt, StrayFocusEvent,
 };
 use crate::events::Event;
 use crate::manager::{Application, Display, Window, WindowManager};
@@ -106,7 +108,8 @@ impl Plugin for FocusEventsPlugin {
             .add_observer(maintain_focus_singleton)
             .add_observer(virtual_strip_activated)
             .add_observer(stray_focus_observer)
-            .add_observer(focus_window_trigger);
+            .add_observer(focus_window_trigger)
+            .add_observer(raise_window_trigger);
     }
 }
 
@@ -116,7 +119,6 @@ pub(super) struct FocusWindow {
     pub raise: bool,
 }
 
-#[allow(clippy::needless_pass_by_value)]
 #[instrument(level = Level::DEBUG, skip_all, fields(trigger))]
 fn maintain_focus_singleton(
     trigger: On<Add, FocusedMarker>,
@@ -144,25 +146,20 @@ fn maintain_focus_singleton(
     config.set_ffm_flag(None);
 }
 
-#[allow(clippy::needless_pass_by_value, clippy::too_many_arguments)]
 #[instrument(level = Level::DEBUG, skip_all, fields(trigger))]
 fn autocenter_window_on_focus(
     focused: Single<Entity, Added<FocusedMarker>>,
     mouse_held: Query<&MouseHeldMarker>,
     restored: Query<&RestoreFocusMarker>,
-    windows: Windows,
     global_state: GlobalState,
     active_display: ActiveDisplay,
-    config: Res<Config>,
-    mut commands: Commands,
+    mut ctx: WindowCtx,
 ) {
     let entity = *focused;
 
-    // A workspace restore re-focuses the remembered window after the strip was
-    // already placed at its saved origin; centering that focus would slide the
-    // strip away from the restored position. The guard outlives this system on
-    // purpose — window_focused_trigger despawns it once focus moves on, and
-    // timeout_ticker expires it otherwise.
+    // Skip auto-centering when this focus came from a workspace restore, since
+    // the strip is already at its saved origin. window_focused_trigger and
+    // timeout_ticker are responsible for clearing the marker.
     if restored.iter().any(|marker| marker.entity == entity) {
         return;
     }
@@ -173,19 +170,18 @@ fn autocenter_window_on_focus(
     if active_display.active_strip().tabbed(entity) {
         return;
     }
-    if config.auto_center()
-        && let Some((_, _, None)) = windows.get_managed(entity)
-        && let Some(size) = windows.size(entity)
-        && let Some(mut origin) = windows.origin(entity)
+    if ctx.config.auto_center()
+        && let Some((_, _, None)) = ctx.windows.get_managed(entity)
+        && let Some(size) = ctx.windows.size(entity)
+        && let Some(mut origin) = ctx.windows.origin(entity)
     {
         let center = active_display.bounds().center();
         origin.x = center.x - size.x / 2;
-        commands.reposition_entity(entity, origin);
+        ctx.commands.reposition_entity(entity, origin);
     }
-    commands.reshuffle_around(entity);
+    ctx.commands.reshuffle_around(entity);
 }
 
-#[allow(clippy::needless_pass_by_value)]
 #[instrument(level = Level::DEBUG, skip_all, fields(trigger))]
 fn mouse_follows_focus(
     focused: Single<Entity, Added<FocusedMarker>>,
@@ -241,7 +237,6 @@ fn mouse_follows_focus(
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
 fn dim_window_trigger(
     trigger: On<Add, FocusedMarker>,
     windows: Windows,
@@ -259,7 +254,6 @@ fn dim_window_trigger(
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
 fn dim_remove_window_trigger(
     trigger: On<Remove, FocusedMarker>,
     windows: Windows,
@@ -286,7 +280,6 @@ fn dim_remove_window_trigger(
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
 #[instrument(level = Level::DEBUG, skip_all, fields(trigger))]
 fn virtual_strip_activated(
     trigger: On<Add, FocusedMarker>,
@@ -303,7 +296,6 @@ fn virtual_strip_activated(
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
 fn focus_window_trigger(trigger: On<FocusWindow>, windows: Windows, apps: Query<&Application>) {
     let FocusWindow { entity, raise } = *trigger.event();
     let Some(window) = windows.get(entity) else {
@@ -322,7 +314,44 @@ fn focus_window_trigger(trigger: On<FocusWindow>, windows: Windows, apps: Query<
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
+fn raise_window_trigger(
+    trigger: On<RaiseWindow>,
+    windows: Query<(Entity, &Window, &Position, &Bounds)>,
+    active_display: ActiveDisplay,
+    config: Res<Config>,
+) {
+    let RaiseWindow { entity, with_strip } = *trigger.event();
+
+    let Ok((focus, window, _, _)) = windows.get(entity) else {
+        return;
+    };
+
+    if with_strip {
+        let viewport = active_display.actual_bounds(&config);
+        let strip = active_display.active_strip();
+        strip
+            .all_windows()
+            .into_iter()
+            .filter_map(|entity| {
+                if entity == focus {
+                    None
+                } else {
+                    windows.get(entity).ok()
+                }
+            })
+            .filter(|(_, _, origin, size)| {
+                let frame = IRect::from_corners(origin.0, origin.0 + size.0);
+                viewport.intersect(frame).width() > 50
+            })
+            .for_each(|(_, window, _, _)| {
+                window.raise_without_focus();
+            });
+    }
+
+    // Raise the focused window last, because raised windows get OS focus events.
+    window.raise_without_focus();
+}
+
 #[instrument(level = Level::DEBUG, skip_all)]
 fn recover_lost_focus(
     windows: Windows,
@@ -342,7 +371,6 @@ fn recover_lost_focus(
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
 pub(super) fn stray_focus_observer(
     trigger: On<Add, Window>,
     focus_events: Populated<(Entity, &StrayFocusEvent)>,
