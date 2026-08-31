@@ -256,6 +256,10 @@ pub struct PlatformCallbacks {
 }
 
 impl PlatformCallbacks {
+    pub fn workspace_observer(&self) -> Retained<WorkspaceObserver> {
+        self.workspace_observer.clone()
+    }
+
     /// Creates a new `PlatformCallbacks` instance, initializing various handlers and watchers.
     /// This involves setting up `Config`, `WorkspaceObserver`, `ProcessHandler`, `InputHandler`,
     /// `MissionControlHandler`, `DisplayHandler`, and `FsEventWatcher`.

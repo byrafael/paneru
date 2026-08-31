@@ -194,6 +194,7 @@ impl WindowOS {
     /// # Returns
     ///
     /// `Ok(Window)` if the window is created successfully, otherwise `Err(Error)`.
+    #[allow(dead_code)]
     #[instrument(level = Level::TRACE, ret)]
     pub fn new(element: &CFRetained<AXUIWrapper>) -> Result<Self> {
         Self::new_with_config(element, &Config::default(), None)

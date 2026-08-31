@@ -32,7 +32,7 @@ use crate::util::{AXUIWrapper, MacResult, create_array, round_px, symlink_target
 use app::ApplicationOS;
 pub use app::{Application, ApplicationApi};
 pub use display::Display;
-pub use process::{Process, ProcessApi};
+pub use process::{Process, ProcessApi, pid_for_psn};
 pub use skylight::AXUIElementCopyAttributeValue;
 use skylight::{
     _AXUIElementCreateWithRemoteToken, SLSCopyActiveMenuBarDisplayIdentifier,

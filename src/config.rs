@@ -920,7 +920,9 @@ impl TryFrom<&str> for Config {
 
 #[cfg(test)]
 impl From<(MainOptions, Vec<WindowParams>, swipe::SwipeOptions)> for Config {
-    fn from((options, params, swipe): (MainOptions, Vec<WindowParams>, swipe::SwipeOptions)) -> Self {
+    fn from(
+        (options, params, swipe): (MainOptions, Vec<WindowParams>, swipe::SwipeOptions),
+    ) -> Self {
         Self {
             inner: Arc::new(ArcSwap::from_pointee(InnerConfig {
                 options,

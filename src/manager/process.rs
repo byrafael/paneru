@@ -68,6 +68,13 @@ unsafe extern "C" {
     fn GetProcessPID(psn: *const ProcessSerialNumber, pid: *mut Pid) -> OSStatus;
 }
 
+/// Resolves a Carbon PSN to a UNIX pid. `None` if the process is gone.
+pub fn pid_for_psn(psn: ProcessSerialNumber) -> Option<Pid> {
+    let mut pid: Pid = 0;
+    let status = unsafe { GetProcessPID(&raw const psn, NonNull::from(&mut pid).as_ptr()) };
+    (status == 0 && pid != 0).then_some(pid)
+}
+
 /// Defines the interface for interacting with a macOS process, abstracting OS-specific details.
 #[automock]
 pub trait ProcessApi: Send + Sync {

@@ -5,11 +5,12 @@ use bevy::ecs::lifecycle::{Add, Remove, RemovedComponents};
 use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::ecs::observer::On;
 use bevy::ecs::query::{Added, Has, With, Without};
-use bevy::ecs::system::{Commands, NonSendMut, Populated, Query, Res, ResMut, Single};
+use bevy::ecs::system::{Commands, NonSend, NonSendMut, Populated, Query, Res, ResMut, Single};
 use bevy::math::IRect;
 use notify::event::{DataChange, MetadataKind, ModifyKind};
 use notify::{EventKind, Watcher};
 use std::cmp::Ordering;
+use std::pin::Pin;
 use std::time::Duration;
 use tracing::{Level, debug, error, info, instrument, trace, warn};
 
@@ -31,9 +32,9 @@ use crate::ecs::{
 };
 use crate::events::{DestroySource, Event};
 use crate::manager::{
-    Application, Display, Origin, Process, Size, Window, WindowManager, WindowPadding,
+    Application, Display, Origin, Process, Size, Window, WindowManager, WindowPadding, pid_for_psn,
 };
-use crate::platform::WinID;
+use crate::platform::{PlatformCallbacks, ProcessSerialNumber, WinID};
 use crate::util::{round_px, symlink_target};
 
 /// The display currently in front, paired with the Dock's edge — together they
@@ -75,32 +76,58 @@ pub(crate) fn apply_config_side_effects(
 
 /// Handles the event when an application switches to the front. It updates the focused window and PSN.
 ///
-/// # Arguments
-///
-/// * `trigger` - The Bevy event trigger containing the application front switched event.
-/// * `processes` - A query for all processes with their children.
-/// * `applications` - A query for all applications.
-/// * `focused_window` - A query for the focused window.
-/// * `focus_follows_mouse_id` - The resource to track focus follows mouse window ID.
-/// * `commands` - Bevy commands to trigger events and manage components.
+/// Apps missed at startup (Electron often reports no AX windows, or Carbon
+/// never handed us a launch event) are adopted here: Cmd-Tab is the signal
+/// that a real GUI process exists and its windows can be queried.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn front_switched_trigger(
     mut messages: MessageReader<Event>,
     processes: Query<(&BProcess, &Children)>,
     applications: Query<&Application>,
+    windows: Windows,
     window_manager: Res<WindowManager>,
+    config_res: Res<Config>,
+    platform: Option<NonSend<Pin<Box<PlatformCallbacks>>>>,
     mut config: GlobalState,
     mut commands: Commands,
 ) {
     const FRONT_SWITCH_RETRY_SEC: u64 = 2;
+    const PROCESS_READY_TIMEOUT_SEC: u64 = 5;
     for event in messages.read() {
         let Event::ApplicationFrontSwitched { psn } = event else {
             continue;
         };
 
-        let Some((BProcess(process), children)) =
-            processes.iter().find(|process| &process.0.psn() == psn)
-        else {
-            debug!("Unable to find process with PSN {psn:?}");
+        let found = processes
+            .iter()
+            .find(|(process, _)| process.0.psn() == *psn)
+            .or_else(|| {
+                pid_for_psn(*psn)
+                    .and_then(|pid| processes.iter().find(|(process, _)| process.0.pid() == pid))
+            });
+
+        let Some((BProcess(process), children)) = found else {
+            if let Some(platform) = platform.as_ref() {
+                let process: BProcess = Process::new(psn, platform.workspace_observer()).into();
+                if process.pid() != 0 {
+                    info!(
+                        "Adopting untracked frontmost process '{}' (PSN {psn:?}, pid {}).",
+                        process.name(),
+                        process.pid()
+                    );
+                    let timeout = Timeout::new(
+                        Duration::from_secs(PROCESS_READY_TIMEOUT_SEC),
+                        Some(format!(
+                            "Process '{}' did not become ready in {PROCESS_READY_TIMEOUT_SEC}s.",
+                            process.name()
+                        )),
+                        &mut commands,
+                    );
+                    commands.spawn((FreshMarker, timeout, process));
+                }
+            } else {
+                debug!("Unable to find process with PSN {psn:?}");
+            }
             continue;
         };
 
@@ -117,6 +144,22 @@ pub(super) fn front_switched_trigger(
         };
 
         debug!("front switching process: {}", process.name());
+
+        // Electron (Linear) often withholds AXWindows until the app is
+        // focused. Spawn anything the app now exposes that we do not have.
+        let missing: Vec<Window> = app
+            .window_list(&config_res)
+            .into_iter()
+            .filter(|window| windows.find(window.id()).is_none())
+            .collect();
+        if !missing.is_empty() {
+            info!(
+                "Front switch discovered {} new window(s) for '{}'.",
+                missing.len(),
+                process.name()
+            );
+            commands.trigger(SpawnWindowTrigger(missing));
+        }
 
         if let Ok(focused_id) = app.focused_window_id().inspect_err(|err| {
             warn!("can not get current focus: {err}");
@@ -425,10 +468,17 @@ pub(super) fn application_event_trigger(
     mut commands: Commands,
 ) {
     const PROCESS_READY_TIMEOUT_SEC: u64 = 5;
-    let find_process = |psn| {
+    let find_process = |psn: ProcessSerialNumber| {
         processes
             .iter()
             .find(|(BProcess(process), _)| process.psn() == psn)
+            .or_else(|| {
+                pid_for_psn(psn).and_then(|pid| {
+                    processes
+                        .iter()
+                        .find(|(BProcess(process), _)| process.pid() == pid)
+                })
+            })
     };
 
     for event in messages.read() {

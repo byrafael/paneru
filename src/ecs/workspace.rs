@@ -9,7 +9,7 @@ use bevy::ecs::observer::On;
 use bevy::ecs::query::{Added, Has, With, Without};
 use bevy::ecs::schedule::IntoScheduleConfigs as _;
 use bevy::ecs::schedule::common_conditions::{not, resource_exists};
-use bevy::ecs::system::{Commands, Local, ParamSet, Populated, Query, Res, ResMut, Single};
+use bevy::ecs::system::{Commands, ParamSet, Populated, Query, Res, ResMut, Single};
 use bevy::time::common_conditions::on_timer;
 use std::collections::HashSet;
 use std::time::Duration;
@@ -275,7 +275,6 @@ fn detect_moved_windows(
     mut workspaces: Query<(&mut LayoutStrip, Entity, Has<NativeFullscreenMarker>)>,
     apps: Query<&mut Application>,
     window_manager: Res<WindowManager>,
-    mut ignored_windows: Local<HashSet<WinID>>,
     mut ctx: WindowCtx,
 ) {
     let Ok(workspace_id) = workspaces
@@ -304,10 +303,8 @@ fn detect_moved_windows(
     else {
         return;
     };
-    // Skip known, but unmanaged windows.
-    unresolved.retain(|window_id| {
-        !ignored_windows.contains(window_id) && ctx.windows.find(*window_id).is_none()
-    });
+    // Skip windows already in ECS (including unmanaged).
+    unresolved.retain(|window_id| ctx.windows.find(*window_id).is_none());
 
     if !unresolved.is_empty() {
         let unresolved_ids = unresolved.iter().copied().collect::<HashSet<_>>();
@@ -324,9 +321,11 @@ fn detect_moved_windows(
             })
             .collect::<Vec<_>>();
         if retry_windows.is_empty() {
-            for id in unresolved_ids {
-                ignored_windows.insert(id);
-            }
+            // Do not permanently ignore: Electron apps (Linear) often return an
+            // empty AX window list until they are focused. Cmd-Tab later is
+            // the moment the list becomes real, so a one-shot ignore would
+            // hide the window for the rest of the session.
+            debug!("unresolved windows still missing AX elements: {unresolved_ids:?}");
         } else {
             debug!(
                 "retrying unresolved windows: {}",

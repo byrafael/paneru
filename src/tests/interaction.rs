@@ -2249,3 +2249,38 @@ fn test_virtual_directions_first_last_east_west() {
         .on_iteration(8, assert_active_vw(0))
         .run(commands);
 }
+
+/// A window the OS already has, but paneru never spawned (missed at startup,
+/// empty AX list until focus), must appear when the app is Cmd-Tabbed.
+#[test]
+fn test_front_switch_spawns_missing_app_windows() {
+    let commands = vec![
+        Event::Command {
+            command: Command::PrintState,
+        },
+        Event::Command {
+            command: Command::PrintState,
+        },
+    ];
+
+    TestHarness::new()
+        .with_windows(1)
+        .on_iteration(0, |_world, state| {
+            state.spawn_window(
+                TEST_PROCESS_ID,
+                TEST_WORKSPACE_ID,
+                1,
+                IRect::new(0, 0, TEST_WINDOW_WIDTH, TEST_WINDOW_HEIGHT),
+            );
+            state.focus_window(1);
+        })
+        .on_iteration(1, |world, _state| {
+            let mut query = world.query::<&Window>();
+            let ids: Vec<_> = query.iter(world).map(|window| window.id()).collect();
+            assert!(
+                ids.contains(&1),
+                "front switch must spawn the app's missing window, have {ids:?}"
+            );
+        })
+        .run(commands);
+}

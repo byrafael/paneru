@@ -182,7 +182,7 @@ pub(crate) fn add_existing_process(
     for (entity, process) in processes {
         let Ok(app) = window_manager.new_application(&*process.0) else {
             error!("creating aplication from process '{}'", process.name());
-            return;
+            continue;
         };
         commands.spawn((app, ExistingMarker, ChildOf(entity)));
         if let Ok(mut entity_commands) = commands.get_entity(entity) {
@@ -401,7 +401,7 @@ pub(super) fn add_launched_process(
 
         let Ok(mut app) = window_manager.new_application(process) else {
             error!("creating aplication from process '{}'", process.name());
-            return;
+            continue;
         };
 
         if app.observe().is_ok_and(|good| good) {
@@ -1247,13 +1247,17 @@ pub(crate) fn update_low_power_state(low_power_mode: Option<ResMut<LowPowerMode>
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
-pub(crate) fn window_creation_event(mut messages: MessageReader<Event>, mut commands: Commands) {
+pub(crate) fn window_creation_event(
+    mut messages: MessageReader<Event>,
+    config: Res<Config>,
+    mut commands: Commands,
+) {
     for event in messages.read() {
         let Event::WindowCreated { element } = event else {
             continue;
         };
 
-        if let Ok(window) = WindowOS::new(element)
+        if let Ok(window) = WindowOS::new_with_config(element, &config, None)
             .inspect_err(|err| {
                 trace!("not adding window {element:?}: {err}");
             })
