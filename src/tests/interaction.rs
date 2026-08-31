@@ -2046,8 +2046,10 @@ fn test_swipe_snaps_settled_window_into_view() {
             .into()
     }
 
-    // The harness advances the clock 100ms per update and runs 5 updates per
-    // event, so one event is ~500ms of virtual time.
+    // Each command is given 500ms of simulated time (20ms frames × 25). A
+    // swipe delta is viewport-fractions travelled in one frame, so velocity
+    // is `delta / dt`. 0.03 over 20ms is the same gentle flick 0.15 was on
+    // the old 100ms harness tick.
     let commands = |delta: f64| {
         vec![
             Event::MenuOpened { window_id: 0 },
@@ -2073,7 +2075,7 @@ fn test_swipe_snaps_settled_window_into_view() {
                 "a slightly overhanging window must snap flush to the edge, got {frame:?}"
             );
         })
-        .run(commands(0.15));
+        .run(commands(0.03));
 
     // Same gentle swipe, but with a snap delay longer than the whole test
     // run: the strip must be left exactly where the swipe put it. This is the
@@ -2090,7 +2092,7 @@ fn test_swipe_snaps_settled_window_into_view() {
                 "a pause shorter than the snap delay must not snap, got {frame:?}"
             );
         })
-        .run(commands(0.15));
+        .run(commands(0.03));
 
     // Hard swipe: window 0 is scrolled well past the edge and must stay there.
     TestHarness::new()
@@ -2105,7 +2107,7 @@ fn test_swipe_snaps_settled_window_into_view() {
                 "a window scrolled past must not be dragged back, got {frame:?}"
             );
         })
-        .run(commands(0.3));
+        .run(commands(0.06));
 }
 
 /// A window parked on a hidden virtual row must stay parked when its app
