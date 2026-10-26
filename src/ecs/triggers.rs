@@ -35,7 +35,7 @@ use crate::ecs::{
 use crate::events::{DestroySource, Event};
 use crate::manager::{
     Application, Display, Origin, Process, Size, Window, WindowManager, WindowPadding,
-    forget_enhanced_ui_state, pid_for_psn,
+    forget_enhanced_ui_state, pid_for_psn, psn_is_dock,
 };
 use crate::platform::{PlatformCallbacks, ProcessSerialNumber, WinID};
 use crate::util::{round_px, symlink_target};
@@ -481,6 +481,7 @@ pub(super) fn mission_control_trigger(
             Event::MissionControlShowAllWindows
             | Event::MissionControlShowFrontWindows
             | Event::MissionControlShowDesktop => {
+                debug!("mission control shown: {event:?}");
                 mission_control_active.as_mut().0 = true;
                 for (entity, _, _, scroll) in &workspaces {
                     if scroll.is_some()
@@ -490,7 +491,19 @@ pub(super) fn mission_control_trigger(
                     }
                 }
             }
+            // Mission Control is hosted by the Dock, which is frontmost while it
+            // is up. The flag gates every swipe and mouse system but not
+            // keybindings, so a lost `AXExposeExit` would otherwise leave the
+            // trackpad dead until the daemon restarts. A regular app taking
+            // the front proves Mission Control is over.
+            Event::ApplicationFrontSwitched { psn }
+                if mission_control_active.0 && !psn_is_dock(*psn) =>
+            {
+                warn!("mission control flag was stale, cleared on front switch to {psn:?}");
+                mission_control_active.as_mut().0 = false;
+            }
             Event::MissionControlExit => {
+                debug!("mission control exited");
                 mission_control_active.as_mut().0 = false;
 
                 // A window dragged to another desktop can leave the source

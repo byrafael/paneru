@@ -75,6 +75,14 @@ pub fn pid_for_psn(psn: ProcessSerialNumber) -> Option<Pid> {
     (status == 0 && pid != 0).then_some(pid)
 }
 
+/// Whether the process with this PSN is the Dock, which hosts Mission Control.
+pub fn psn_is_dock(psn: ProcessSerialNumber) -> bool {
+    pid_for_psn(psn)
+        .and_then(NSRunningApplication::runningApplicationWithProcessIdentifier)
+        .and_then(|app| app.bundleIdentifier())
+        .is_some_and(|id| id.to_string() == "com.apple.dock")
+}
+
 /// Defines the interface for interacting with a macOS process, abstracting OS-specific details.
 #[automock]
 pub trait ProcessApi: Send + Sync {
