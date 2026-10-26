@@ -6,7 +6,7 @@ use crate::config::{
 };
 use crate::ecs::SpawnWindowTrigger;
 use crate::ecs::layout::LayoutStrip;
-use crate::events::{DestroySource, Event};
+use crate::events::Event;
 use crate::{assert_window_at, assert_window_size};
 use bevy::math::IRect;
 use bevy::prelude::*;
@@ -465,6 +465,7 @@ fn test_window_can_resize_to_two_display_widths_and_scroll() {
         Event::Swipe {
             delta: 0.3,
             fingers: 3,
+            distance_cm: 0.0,
         },
         Event::Command {
             command: Command::Window(Operation::Snap),

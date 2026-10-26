@@ -6,7 +6,7 @@ use bevy::time::TimeUpdateStrategy;
 use crate::commands::{Command, Direction, MouseMove, MoveFocus, Operation};
 use crate::config::{Config, MainOptions};
 use crate::ecs::layout::{LayoutStrip, PARKED_STRIP_SLIVER};
-use crate::ecs::{ActiveWorkspaceMarker, DockPosition, RefreshWindowSizes, Timeout};
+use crate::ecs::{DockPosition, Timeout};
 use crate::events::Event;
 use crate::manager::{Display, Origin, Size, Window};
 use crate::platform::WinID;
