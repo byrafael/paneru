@@ -4,6 +4,8 @@ use std::{
     os::unix::process::CommandExt,
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
+    thread,
+    time::Duration,
 };
 
 use tracing::{info, warn};
@@ -202,28 +204,61 @@ impl Service {
 
     /// Restarts the service by first stopping it and then starting it again.
     ///
+    /// `stop()` issues `launchctl bootout`, which tears the job down
+    /// asynchronously: `start()` can race that teardown and fail with the
+    /// label transiently still registered. Retry briefly rather than leaving
+    /// the service down on a one-off race.
+    ///
     /// # Returns
     ///
-    /// `Ok(())` if the service restarts successfully, otherwise `Err(Error)` from underlying stop/start operations.
+    /// `Ok(())` if the service restarts successfully, otherwise the last `Err(Error)` from `start`.
     pub fn restart(&self) -> Result<()> {
+        const RETRIES: u32 = 5;
+        const RETRY_DELAY: Duration = Duration::from_millis(300);
+
         self.stop()?;
-        self.start()
+
+        let mut last_err = None;
+        for attempt in 1..=RETRIES {
+            match self.start() {
+                Ok(()) => return Ok(()),
+                Err(err) => {
+                    warn!("restart: start attempt {attempt}/{RETRIES} failed: {err}");
+                    last_err = Some(err);
+                    thread::sleep(RETRY_DELAY);
+                }
+            }
+        }
+        Err(last_err.expect("loop runs at least once"))
     }
 
     /// Spawns a detached `paneru restart` subprocess.
     /// Used by the in-daemon restart command so launchctl stop/start runs outside
     /// the process being stopped.
+    ///
+    /// Its stdout/stderr are appended to the service's own log files rather
+    /// than discarded: this subprocess is fire-and-forget from the caller's
+    /// side, so a failed `bootstrap` inside it would otherwise vanish
+    /// silently, leaving the service down with no trace of why.
     pub fn request_restart() -> Result<()> {
         let bin_path = exe_path().ok_or(Error::new(
             ErrorKind::NotFound,
             "Cannot find current executable path.",
         ))?;
+        let service = Self::try_new(ID)?;
+        service.create_log_files()?;
+        let stdout = fs::OpenOptions::new()
+            .append(true)
+            .open(&service.raw.out_log_path)?;
+        let stderr = fs::OpenOptions::new()
+            .append(true)
+            .open(&service.raw.error_log_path)?;
         Command::new(bin_path)
             .arg("restart")
             .process_group(0)
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stdout(stdout)
+            .stderr(stderr)
             .spawn()?;
         Ok(())
     }
