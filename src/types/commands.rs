@@ -282,6 +282,10 @@ pub enum Operation {
     /// Copies a `[windows]` configuration rule for the focused window to the
     /// clipboard.
     CopyRule,
+    /// Moves to the nearest display in a physical direction.
+    ToDisplay(Direction, MoveFocus),
+    /// Exchanges the current virtual workspace's number with an existing one.
+    VirtualSwapNumber(u32),
 }
 
 /// Defines operations that can be performed on the mouse.

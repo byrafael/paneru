@@ -186,6 +186,21 @@ fn window_table(lua: &Lua, dispatch: &Dispatch) -> Result<Table> {
         "next_display",
         follower(lua, dispatch, Operation::ToNextDisplay)?,
     )?;
+    let move_display = {
+        let dispatch = Rc::clone(dispatch);
+        lua.create_function(move |lua, value: Value| {
+            let opts = Opts::read(lua, &value)?;
+            let follow = opts.follow();
+            dispatch(
+                lua,
+                Command::Window(Operation::ToDisplay(
+                    opts.target("window.move_display")?,
+                    follow,
+                )),
+            )
+        })?
+    };
+    window.set("move_display", move_display)?;
 
     for (name, operation) in [
         ("focus_managed", Operation::FocusManaged),
@@ -248,6 +263,19 @@ fn workspace_table(lua: &Lua, dispatch: &Dispatch) -> Result<Table> {
         })?
     };
     workspace.set("move_window", move_window)?;
+    let swap = {
+        let dispatch = Rc::clone(dispatch);
+        lua.create_function(move |lua, value: Value| {
+            let Direction::Nth(index) = Opts::read(lua, &value)?.target("workspace.swap")? else {
+                return Err(mlua::Error::RuntimeError(
+                    "workspace.swap expects a workspace number".into(),
+                ));
+            };
+            let index = u32::try_from(index).map_err(mlua::Error::external)?;
+            dispatch(lua, Command::Window(Operation::VirtualSwapNumber(index)))
+        })?
+    };
+    workspace.set("swap", swap)?;
 
     workspace.set(
         "add",
@@ -480,6 +508,8 @@ mod tests {
             paneru.showmenu()
             paneru.hidemenu()
             paneru.workspace.move_window({ number = 2, follow = false })
+            paneru.workspace.swap({ number = 3 })
+            paneru.window.move_display({ direction = "north", follow = false })
         "#)
         .unwrap();
 
@@ -492,6 +522,8 @@ mod tests {
                 Command::MenuBar(true),
                 Command::MenuBar(false),
                 Command::Window(Operation::VirtualMoveNumber(1, MoveFocus::Stay)),
+                Command::Window(Operation::VirtualSwapNumber(2)),
+                Command::Window(Operation::ToDisplay(Direction::North, MoveFocus::Stay)),
             ])
         );
     }

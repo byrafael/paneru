@@ -98,6 +98,8 @@ fn parse_operation(argv: &[&str]) -> Result<Operation> {
         "tabbeddisplay" => Operation::ToggleTabbedDisplay,
         "nextdisplay" => Operation::ToNextDisplay(MoveFocus::Follow),
         "nextdisplaysend" => Operation::ToNextDisplay(MoveFocus::Stay),
+        "display" => Operation::ToDisplay(Direction::parse(argument()?)?, MoveFocus::Follow),
+        "displaysend" => Operation::ToDisplay(Direction::parse(argument()?)?, MoveFocus::Stay),
         "snap" => Operation::Snap,
         "copyrule" => Operation::CopyRule,
         // The `virtual*` verbs take either a direction or a workspace number,
@@ -108,6 +110,9 @@ fn parse_operation(argv: &[&str]) -> Result<Operation> {
         "virtualfocus" => Operation::FocusOrVirtual(Direction::parse(argument()?)?),
         "virtualnum" => Operation::VirtualNumber(parse_virtual_workspace_number(argument()?)?),
         "virtualadd" => Operation::VirtualAdd,
+        "virtualswapnum" => {
+            Operation::VirtualSwapNumber(parse_virtual_workspace_number(argument()?)?)
+        }
         "virtualmove" => virtual_target(
             argument()?,
             |direction| Operation::VirtualMove(direction, MoveFocus::Follow),
@@ -228,6 +233,18 @@ impl Operation {
             Operation::RaiseFloating => owned(&["raise", "floating"]),
             Operation::ToggleFloatingLayer => owned(&["togglefloatlayer"]),
             Operation::CopyRule => owned(&["copyrule"]),
+            Operation::ToDisplay(direction, follow) => vec![
+                if *follow == MoveFocus::Follow {
+                    "display"
+                } else {
+                    "displaysend"
+                }
+                .to_string(),
+                direction.token(),
+            ],
+            Operation::VirtualSwapNumber(index) => {
+                vec!["virtualswapnum".to_string(), (index + 1).to_string()]
+            }
         }
     }
 }
@@ -255,6 +272,9 @@ mod tests {
             Operation::FullWidth,
             Operation::ToNextDisplay(MoveFocus::Follow),
             Operation::ToNextDisplay(MoveFocus::Stay),
+            Operation::ToDisplay(Direction::North, MoveFocus::Follow),
+            Operation::ToDisplay(Direction::South, MoveFocus::Stay),
+            Operation::VirtualSwapNumber(2),
             Operation::Equalize,
             Operation::Balance,
             Operation::Manage,

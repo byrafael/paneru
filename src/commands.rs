@@ -215,11 +215,11 @@ pub(crate) fn get_window_in_direction(
 
 /// 45° direction cone, closest by squared Euclidean distance.
 /// `First` / `Last` are strip-only and return `None`.
-fn pick_nearest_in_direction(
+fn pick_nearest_in_direction<T>(
     direction: &Direction,
     focused_center: bevy::math::IVec2,
-    candidates: impl IntoIterator<Item = (Entity, bevy::math::IVec2)>,
-) -> Option<Entity> {
+    candidates: impl IntoIterator<Item = (T, bevy::math::IVec2)>,
+) -> Option<T> {
     candidates
         .into_iter()
         .filter_map(|(entity, center)| {
@@ -1215,15 +1215,23 @@ fn copy_window_rule(
     }
 }
 
-/// Moves the focused window to the next available display.
-/// The window will be repositioned to the center of the new display.
-///
-/// # Arguments
-///
-/// * `focused_entity` - The `Entity` of the currently focused window.
-/// * `windows` - A mutable query for `Window` components, their `Entity`, and whether they have the `Unmanaged` marker.
-/// * `active_display` - A mutable reference to the `ActiveDisplayMut` resource.
-/// * `commands` - Bevy commands to modify entities and trigger events.
+/// Chooses the next display or the nearest display in a physical direction.
+fn display_move_target(
+    operation: &Operation,
+    source: IRect,
+    mut candidates: impl Iterator<Item = (u32, bevy::math::IVec2)>,
+) -> Option<(u32, MoveFocus)> {
+    match operation {
+        Operation::ToNextDisplay(follow) => candidates.next().map(|(id, _)| (id, *follow)),
+        Operation::ToDisplay(direction, follow) => {
+            pick_nearest_in_direction(direction, source.center(), candidates)
+                .map(|id| (id, *follow))
+        }
+        _ => None,
+    }
+}
+
+/// Moves the focused tiled window into the destination's selected strip.
 fn to_next_display(
     mut messages: MessageReader<Event>,
     windows: Windows,
@@ -1233,12 +1241,10 @@ fn to_next_display(
     config: Res<Config>,
     mut commands: Commands,
 ) {
-    let Some(Operation::ToNextDisplay(move_focus)) =
-        filter_window_operations(&mut messages, |op| {
-            matches!(op, Operation::ToNextDisplay(_))
-        })
-        .next()
-    else {
+    let Some(operation) = filter_window_operations(&mut messages, |op| {
+        matches!(op, Operation::ToNextDisplay(_) | Operation::ToDisplay(_, _))
+    })
+    .next() else {
         return;
     };
 
@@ -1259,19 +1265,41 @@ fn to_next_display(
     // for on both the source and target displays.
     let source_viewport_width = active_display.actual_bounds(&config).width();
 
-    let Some(other) = active_display.other().next() else {
+    let Some((target, move_focus)) = display_move_target(
+        operation,
+        active_display.bounds(),
+        active_display
+            .other()
+            .map(|display| (display.id(), display.bounds().center())),
+    ) else {
+        return;
+    };
+    let Some(other) = active_display
+        .other()
+        .find(|display| display.id() == target)
+    else {
         debug!("no other display to move window to.");
         return;
     };
 
-    debug!(
-        "moving window (id {}, {entity}) to display {}: {}.",
-        window.id(),
-        other.id(),
-        other.width() / 2,
-    );
     let center = other.bounds().center().x;
+    debug!(
+        window_id = window.id(),
+        display_id = other.id(),
+        width = other.width()
+    );
     let target_display_id = other.id();
+
+    // Validate the destination before removing anything from the source strip.
+    let Ok(target_space_id) = window_manager.active_display_space(target_display_id) else {
+        return;
+    };
+    if !other_workspaces
+        .iter()
+        .any(|(strip, _)| strip.id() == target_space_id)
+    {
+        return;
+    }
 
     let Some(size) = windows.size(entity) else {
         return;
@@ -1302,10 +1330,9 @@ fn to_next_display(
     }
 
     // Insert into the target display's selected strip.
-    if let Ok(target_space_id) = window_manager.active_display_space(target_display_id)
-        && let Some((mut target_strip, child)) = other_workspaces
-            .iter_mut()
-            .find(|(strip, _)| strip.id() == target_space_id)
+    if let Some((mut target_strip, child)) = other_workspaces
+        .iter_mut()
+        .find(|(strip, _)| strip.id() == target_space_id)
     {
         target_strip.append(entity);
         commands.reshuffle_around(entity);

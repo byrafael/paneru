@@ -75,12 +75,19 @@ Configure trackpad gestures and scroll-wheel window sliding.
 | :--- | :--- | :--- | :--- |
 | `fingers_count` | Integer | *None* | Number of fingers for the swipe gesture. Set to 3 or more to enable. |
 | `direction` | String | `"Natural"` | Direction of movement: `"Natural"` or `"Reversed"`. |
+| `workspace_fingers_count` | Integer | *None* | Horizontal swipes with this finger count (3 or more) switch one virtual workspace per gesture on the active display. Takes precedence over strip scrolling for that count. Natural direction: swipe left for the next row, right for the previous row. Disable the corresponding macOS Spaces gesture in Trackpad settings. |
+| `display_fingers_count` | Integer | *None* | Vertical swipes with this finger count (3 or more) move the focused tiled window to the nearest screen above/below and follow it, into that screen's selected workspace. Up/down follows the physical monitor layout regardless of scroll direction. One move per gesture; no wrapping. May use the same count as `workspace_fingers_count`. Disable the corresponding macOS Mission Control/App Exposé gesture. |
 | `vertical` | Boolean | `true` | Interpret the vertical gestures with `fingers_count` or ignore them. Enabling this allows using vertical swipe gestures to change virtual desktops. |
 | `paging` | Boolean | `false` | Focus one adjacent window for each horizontal gesture threshold instead of sliding the strip freely. |
 | `page_distance_cm` | Positive float | `2.0` | Approximate horizontal finger travel in centimeters required for each page when `paging = true`. |
 | `haptics` | Boolean | `true` | Emit a haptic pulse after each confirmed paging focus change. Set to `false` to disable pulses. |
 
-When `fingers_count` is omitted or set below 3, Paneru does not intercept native macOS gestures. If macOS uses three-finger horizontal swipes for Spaces, prefer `[swipe.scroll]` with a modifier or configure a different finger count.
+Workspace and display gestures use a short activation distance independent of
+`swipe.sensitivity`: with four fingers, about 3% of the trackpad width/height.
+Lowering strip scrolling sensitivity does not make these discrete gestures harder
+to trigger. Each touch sequence still performs at most one action.
+
+When all configured gesture finger counts are omitted or below 3, Paneru does not intercept native macOS gestures. If macOS uses three-finger horizontal swipes for Spaces, prefer `[swipe.scroll]` with a modifier or configure a different finger count.
 
 Paging estimates physical distance from the trackpad's reported device size. The centimeter threshold may feel slightly different across devices; adjust `page_distance_cm` to suit your trackpad. Haptics require compatible hardware and may be suppressed by macOS when fingers are no longer touching it.
 
@@ -254,6 +261,8 @@ https://github.com/karinushka/paneru/blob/3790b01f8d65df5d9000142db7cf25f9270dcc
 | `window_balance` | Make all columns in the strip the same width as the focused window. |
 | `window_nextdisplay` | Move focused window to the next monitor and follow it. |
 | `window_nextdisplaysend` | Move focused window to the next monitor but stay on current. |
+| `window_display_<direction>` | Move the focused tiled window to the nearest monitor in a physical direction (`north`, `south`, `east`, `west`) and follow it, into that monitor's selected virtual workspace. No-op if no monitor is in that direction. |
+| `window_displaysend_<direction>` | Same directional move, keeping focus on the source monitor. |
 | `mouse_nextdisplay` | Warp mouse cursor to the next monitor. |
 | `window_snap` | Snap an overflowing window into the viewport. |
 | `window_raise_floating` | Make the floating windows layer visible on the current workspace. |
@@ -290,6 +299,7 @@ Virtual workspaces can also be navigated using trackpad gestures. If `[swipe.ges
 | `window_virtual_north` / `_south` / `_first` / `_last` | Switch to the previous/next or first/last virtual workspace (row of windows), unconditionally. `_east` or `_west` are aliases for `_north` and `_south`. |
 | `window_virtualfocus_north` / `_south` | Like `window_virtual_north`/`_south`, but if the focused window is in a stack and has a neighbor above/below, focuses that neighbor instead of switching — the same within-column traversal as `window_focus_north`/`_south`. Only switches the virtual workspace once there's nothing left to focus that way. No `_east`/`_west`/`_first`/`_last` form (there's no "focus" reading to pair with those). |
 | `window_virtualnum_<number>` | Switch directly to the numbered virtual workspace. |
+| `window_virtualswapnum_<number>` | Exchange the current workspace's number with an existing workspace on the same display/native Space. Keeps each group and its layout intact, and keeps you with the current group under its new number. Missing targets and the current number do nothing. |
 | `window_virtualmove_north` / `_south` / `_first` / `_last` | Move currently focused window to the previous/next or first/last virtual workspace and follow it. `_east` or `_west` are aliases for `_north` and `_south`. |
 | `window_virtualsend_north` / `_south` / `_first` / `_last` | Move currently focused window to the previous/next or first/last virtual workspace but stay on the current one. `_east` or `_west` are aliases for `_north` and `_south`. |
 | `window_virtualmovenum_<number>` | Move currently focused window to the numbered virtual workspace and follow it. |

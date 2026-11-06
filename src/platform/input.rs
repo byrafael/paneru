@@ -569,14 +569,16 @@ impl InputHandler {
         const NS_EVENT_PHASE_ENDED: usize = 1 << 3; // 8
         const NS_EVENT_PHASE_CANCELLED: usize = 1 << 4; // 16
 
-        let Some(configured_fingers) = self
-            .config
-            .swipe_gesture_fingers()
-            .filter(|fingers| *fingers >= GESTURE_MINIMAL_FINGERS)
-        else {
+        let strip_fingers = self.config.swipe_gesture_fingers();
+        let workspace_fingers = self.config.swipe_workspace_fingers();
+        let display_fingers = self.config.swipe_display_fingers();
+        if strip_fingers.is_none_or(|fingers| fingers < GESTURE_MINIMAL_FINGERS)
+            && workspace_fingers.is_none()
+            && display_fingers.is_none()
+        {
             // No valid gesture is configured, so leave native macOS gestures alone.
             return false;
-        };
+        }
 
         objc2::rc::autoreleasepool(|_| {
             let Some(ns_event) = NSEvent::eventWithCGEvent(event) else {
@@ -599,7 +601,13 @@ impl InputHandler {
             }
 
             let fingers = Touch::sample(&ns_event.allTouches());
-            if !gesture_should_intercept(Some(configured_fingers), fingers.len()) {
+            let configured_fingers = fingers.len();
+            let workspace_gesture = gesture_should_intercept(workspace_fingers, configured_fingers);
+            let display_gesture = gesture_should_intercept(display_fingers, configured_fingers);
+            if !workspace_gesture
+                && !display_gesture
+                && !gesture_should_intercept(strip_fingers, configured_fingers)
+            {
                 // AppKit interleaves phase events with an empty touch set
                 // between usable samples. They do not mean the fingers lifted.
                 // That's why empty finger counts don't trigger a reset.
@@ -645,7 +653,9 @@ impl InputHandler {
                         self.last_swipe_time = Some(Instant::now());
                     }
                 }
-                Some(SwipeMovement::Vertical(delta)) if self.config.swipe_vertical() => {
+                Some(SwipeMovement::Vertical(delta))
+                    if display_gesture || (!workspace_gesture && self.config.swipe_vertical()) =>
+                {
                     if let Some(events) = &self.events {
                         let _ = events.send(Event::VerticalSwipe {
                             delta,

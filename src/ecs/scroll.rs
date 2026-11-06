@@ -12,7 +12,7 @@ use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 use tracing::{Level, instrument};
 
-use crate::commands::{Command, Direction, Operation};
+use crate::commands::{Command, Direction, MoveFocus, Operation};
 use crate::config::Config;
 use crate::config::swipe::{SwipeGestureDirection, focus_direction};
 use crate::ecs::layout::{Column, LayoutStrip};
@@ -32,6 +32,10 @@ use crate::util::round_px;
 pub struct ScrollEventsPlugin;
 
 const PAGE_GESTURE_TIMEOUT: Duration = Duration::from_millis(150);
+
+// Deltas sum normalized finger travel: four fingers moving 3% of the pad
+// activate a discrete action, independently of strip scrolling sensitivity.
+const WORKSPACE_GESTURE_THRESHOLD: f64 = 0.12;
 
 /// One gesture-earned focus step, routed to [`crate::commands::command_move_focus`].
 #[derive(Message, Debug, Clone)]
@@ -209,6 +213,9 @@ impl Plugin for ScrollEventsPlugin {
         app.add_systems(
             Update,
             (
+                workspace_display_gesture
+                    .run_if(mission_control_inactive)
+                    .run_if(on_message::<InputEvent>),
                 vertical_swipe_gesture
                     .run_if(mission_control_inactive)
                     .run_if(on_message::<InputEvent>),
@@ -273,7 +280,9 @@ fn paging_gesture(
                 distance_cm,
                 fingers,
                 ..
-            } if Some(*fingers) == current_config.1 => {
+            } if Some(*fingers) == current_config.1
+                && config.swipe_workspace_fingers() != Some(*fingers) =>
+            {
                 state.last_event = Some(time.elapsed());
                 state.active = true;
                 if !distance_cm.is_finite() {
@@ -342,9 +351,10 @@ fn swipe_gesture(
                 has_scroll_event = true;
             }
             Event::Swipe { delta, fingers, .. }
-                if config
-                    .swipe_gesture_fingers()
-                    .is_some_and(|fingers_configured| fingers_configured == *fingers)
+                if config.swipe_workspace_fingers() != Some(*fingers)
+                    && config
+                        .swipe_gesture_fingers()
+                        .is_some_and(|fingers_configured| fingers_configured == *fingers)
                     && !config.swipe_gesture_paging() =>
             {
                 total_delta += delta;
@@ -718,6 +728,68 @@ struct VerticalGestureState {
     fired: bool,
 }
 
+#[derive(Default)]
+struct WorkspaceGestureState {
+    accumulated: f64,
+    vertical_accumulated: f64,
+    fired: bool,
+}
+
+/// One workspace switch or directional display move per gesture.
+#[instrument(level = Level::TRACE, skip_all)]
+fn workspace_display_gesture(
+    mut messages: MessageReader<InputEvent>,
+    active_display: ActiveDisplay,
+    config: Res<Config>,
+    mut commands: Commands,
+    mut state: Local<WorkspaceGestureState>,
+) {
+    if active_display.fullscreen().is_some() {
+        *state = WorkspaceGestureState::default();
+        return;
+    }
+    for InputEvent(event) in messages.read() {
+        match event {
+            Event::TouchpadDown | Event::TouchpadUp => {
+                *state = WorkspaceGestureState::default();
+            }
+            Event::Swipe { delta, fingers, .. }
+                if config.swipe_workspace_fingers() == Some(*fingers) && !state.fired =>
+            {
+                state.accumulated += delta;
+                if state.accumulated.abs() >= WORKSPACE_GESTURE_THRESHOLD {
+                    // A leftward finger movement has positive delta. With
+                    // natural direction it advances to the next row.
+                    switch_virtual_workspace(-state.accumulated, &config, &mut commands);
+                    state.fired = true;
+                }
+            }
+            Event::VerticalSwipe { delta, fingers }
+                if config.swipe_display_fingers() == Some(*fingers) && !state.fired =>
+            {
+                state.vertical_accumulated += delta;
+                if state.vertical_accumulated.abs() >= WORKSPACE_GESTURE_THRESHOLD {
+                    // NSTouch's normalized y increases toward the top of the
+                    // trackpad; the accumulator emits previous - current.
+                    let direction = if state.vertical_accumulated < 0.0 {
+                        Direction::North
+                    } else {
+                        Direction::South
+                    };
+                    commands.trigger(SendMessageTrigger(Event::Command {
+                        command: Command::Window(Operation::ToDisplay(
+                            direction,
+                            MoveFocus::Follow,
+                        )),
+                    }));
+                    state.fired = true;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 #[instrument(level = Level::TRACE, skip_all)]
 fn vertical_swipe_gesture(
     mut messages: MessageReader<InputEvent>,
@@ -746,9 +818,11 @@ fn vertical_swipe_gesture(
                 switch_virtual_workspace(*delta, &config, &mut commands);
             }
             Event::VerticalSwipe { delta, fingers }
-                if config
-                    .swipe_gesture_fingers()
-                    .is_some_and(|fingers_configured| fingers_configured == *fingers) =>
+                if config.swipe_workspace_fingers() != Some(*fingers)
+                    && config.swipe_display_fingers() != Some(*fingers)
+                    && config
+                        .swipe_gesture_fingers()
+                        .is_some_and(|fingers_configured| fingers_configured == *fingers) =>
             {
                 state.last_event = Some(Instant::now());
 

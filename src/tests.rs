@@ -9,6 +9,7 @@ mod state;
 mod tabbed_display;
 mod tabs;
 mod tiling;
+mod workspace_gestures;
 
 pub(crate) use harness::*;
 pub(crate) use mocks::*;

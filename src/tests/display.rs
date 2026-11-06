@@ -1107,8 +1107,10 @@ fn test_empty_baseline_row_survives_display_removal() {
 /// cross via the explicit `window_nextdisplay*` bindings.
 #[test]
 fn test_swap_north_does_not_leave_display_when_fallthrough_disabled() {
-    let mut options = MainOptions::default();
-    options.display_fallthrough = Some(false);
+    let options = MainOptions {
+        display_fallthrough: Some(false),
+        ..Default::default()
+    };
     let config: Config = (options, vec![]).into();
 
     let commands = vec![

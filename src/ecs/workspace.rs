@@ -113,7 +113,11 @@ impl Plugin for WorkspaceEventsPlugin {
 
         app.add_systems(
             PreUpdate,
-            (switch_virtual_workspace_bind, move_virtual_workspace_bind)
+            (
+                switch_virtual_workspace_bind,
+                move_virtual_workspace_bind,
+                swap_virtual_workspace_bind,
+            )
                 .in_set(super::PreUpdateSet::Dispatch),
         );
         app.add_systems(
@@ -1173,6 +1177,37 @@ fn switch_virtual_workspace_bind(
         rows[current_index].1.virtual_index,
         rows[next_index].1.virtual_index
     );
+}
+
+/// Renumbers whole strips without moving their windows or changing selection.
+#[instrument(level = Level::DEBUG, skip_all)]
+fn swap_virtual_workspace_bind(
+    mut messages: MessageReader<Event>,
+    mut workspaces: Query<&mut LayoutStrip, Without<ActiveWorkspaceMarker>>,
+    mut active: Single<
+        (&mut LayoutStrip, Has<NativeFullscreenMarker>),
+        With<ActiveWorkspaceMarker>,
+    >,
+) {
+    let Some(Operation::VirtualSwapNumber(target)) =
+        filter_window_operations(&mut messages, |op| {
+            matches!(op, Operation::VirtualSwapNumber(_))
+        })
+        .next()
+    else {
+        return;
+    };
+    let (active_strip, fullscreen) = &mut *active;
+    if *fullscreen || *target == active_strip.virtual_index {
+        return;
+    }
+    let Some(mut other) = workspaces
+        .iter_mut()
+        .find(|strip| strip.id() == active_strip.id() && strip.virtual_index == *target)
+    else {
+        return;
+    };
+    std::mem::swap(&mut active_strip.virtual_index, &mut other.virtual_index);
 }
 
 /// Handles the keybinding to move windows between virtual workspaces.

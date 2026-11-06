@@ -62,6 +62,14 @@ pub struct GestureOptions {
     /// The number of fingers required for swipe gestures to move windows.
     pub fingers_count: Option<usize>,
 
+    /// Horizontal swipes with this finger count switch virtual workspaces.
+    /// Takes precedence over strip scrolling for the same finger count.
+    pub workspace_fingers_count: Option<usize>,
+
+    /// Vertical swipes with this finger count move the focused window to the
+    /// nearest display above/below and follow it. No wrapping at display edges.
+    pub display_fingers_count: Option<usize>,
+
     /// Which direction swipe gestures should move windows.
     pub direction: Option<SwipeGestureDirection>,
 

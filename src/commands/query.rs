@@ -121,7 +121,8 @@ impl StateBroadcastIntent {
                         Command::Window(
                             Operation::Virtual(_)
                             | Operation::VirtualNumber(_)
-                            | Operation::VirtualAdd,
+                            | Operation::VirtualAdd
+                            | Operation::VirtualSwapNumber(_),
                         ),
                 } => intent.virtual_workspace_changed = true,
                 Event::WindowCreated { .. }
@@ -134,6 +135,7 @@ impl StateBroadcastIntent {
                         Command::Window(
                             Operation::VirtualMove(_, _)
                             | Operation::VirtualMoveNumber(_, _)
+                            | Operation::ToDisplay(_, _)
                             | Operation::Swap(_),
                         ),
                 } => intent.windows_changed = true,

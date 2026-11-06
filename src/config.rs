@@ -536,6 +536,15 @@ impl Config {
             .or(config.options.swipe_gesture_fingers)
     }
 
+    pub fn swipe_workspace_fingers(&self) -> Option<usize> {
+        self.inner()
+            .swipe
+            .as_ref()
+            .and_then(|swipe| swipe.gesture.as_ref())
+            .and_then(|gesture| gesture.workspace_fingers_count)
+            .filter(|fingers| *fingers >= 3)
+    }
+
     pub fn swipe_gesture_paging(&self) -> bool {
         self.inner()
             .swipe
@@ -543,6 +552,15 @@ impl Config {
             .and_then(|swipe| swipe.gesture.as_ref())
             .and_then(|gesture| gesture.paging)
             .unwrap_or(false)
+    }
+
+    pub fn swipe_display_fingers(&self) -> Option<usize> {
+        self.inner()
+            .swipe
+            .as_ref()
+            .and_then(|swipe| swipe.gesture.as_ref())
+            .and_then(|gesture| gesture.display_fingers_count)
+            .filter(|fingers| *fingers >= 3)
     }
 
     pub fn swipe_gesture_page_distance_cm(&self) -> f64 {

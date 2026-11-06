@@ -748,6 +748,8 @@ fn config_to_lua_table(lua: &Lua, config: &Config) -> mlua::Result<Table> {
 
     let GestureOptions {
         fingers_count: _,
+        workspace_fingers_count: _,
+        display_fingers_count: _,
         direction: _,
         vertical: _,
         paging: _,
@@ -756,6 +758,8 @@ fn config_to_lua_table(lua: &Lua, config: &Config) -> mlua::Result<Table> {
     } = GestureOptions::default();
     let gesture = lua.create_table()?;
     gesture.set("fingers_count", config.swipe_gesture_fingers())?;
+    gesture.set("workspace_fingers_count", config.swipe_workspace_fingers())?;
+    gesture.set("display_fingers_count", config.swipe_display_fingers())?;
     let direction_str = match config.swipe_gesture_direction() {
         crate::config::swipe::SwipeGestureDirection::Natural => "Natural",
         crate::config::swipe::SwipeGestureDirection::Reversed => "Reversed",
@@ -905,6 +909,8 @@ mod tests {
 
             [swipe.gesture]
             fingers_count = 3
+            workspace_fingers_count = 4
+            display_fingers_count = 4
             paging = true
             page_distance_cm = 3.0
             haptics = false
