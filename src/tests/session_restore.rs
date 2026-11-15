@@ -3,6 +3,7 @@ use std::time::Duration;
 use bevy::ecs::query::Has;
 use bevy::prelude::*;
 
+use crate::assert_window_at;
 use crate::commands::{Command, Operation};
 use crate::config::{Config, MainOptions, WindowParams};
 use crate::ecs::layout::{Column, LayoutStrip};
@@ -835,6 +836,71 @@ fn test_emptied_baseline_row_is_parked_and_repositions_moved_windows() {
                 visible_origin,
                 "moving window 0 to a new virtual row must reposition it even when relative LayoutPosition stays (0, 0)"
             );
+        })
+        .run(commands);
+}
+
+/// A restored row parks with the raw display origin, which ignores edge
+/// padding. Showing it must still place its windows below the top padding,
+/// where every other visible row sits; a status bar under the menu bar relies
+/// on that gap.
+#[test]
+fn test_restored_parked_row_honours_top_padding_when_shown() {
+    const PADDING_TOP: u16 = 36;
+    let config: Config = (
+        MainOptions {
+            animation_speed: Some(10000.0),
+            auto_center: Some(false),
+            virtual_workspace_animations: Some(false),
+            padding_top: Some(PADDING_TOP),
+            ..Default::default()
+        },
+        vec![],
+    )
+        .into();
+
+    let commands = vec![
+        Event::MenuOpened { window_id: 0 },
+        Event::Command {
+            command: Command::Window(Operation::VirtualNumber(1)),
+        },
+        Event::Command {
+            command: Command::PrintState,
+        },
+    ];
+
+    let mut harness = TestHarness::new()
+        .with_config(config)
+        .with_workspace_window(0, TEST_WORKSPACE_ID, |_| {})
+        .with_workspace_window(1, TEST_WORKSPACE_ID, |_| {});
+    harness.world().insert_resource(PaneruState {
+        version: 2,
+        timestamp: 123_456_789,
+        active_display_id: Some(TEST_DISPLAY_ID),
+        displays: vec![saved_display(TEST_DISPLAY_ID, true)],
+        workspaces: vec![SavedWorkspace {
+            workspace_id: TEST_WORKSPACE_ID,
+            display_id: Some(TEST_DISPLAY_ID),
+            active_virtual_index: Some(0),
+            strips: vec![
+                SavedStrip {
+                    virtual_index: 0,
+                    columns: vec![SavedColumn::Single(saved_window(0))],
+                },
+                SavedStrip {
+                    virtual_index: 1,
+                    columns: vec![SavedColumn::Single(saved_window(1))],
+                },
+            ],
+        }],
+    });
+
+    harness
+        .on_iteration(0, |world, _state| {
+            assert_window_at!(world, 0, 0, TEST_MENUBAR_HEIGHT + i32::from(PADDING_TOP));
+        })
+        .on_iteration(2, |world, _state| {
+            assert_window_at!(world, 1, 0, TEST_MENUBAR_HEIGHT + i32::from(PADDING_TOP));
         })
         .run(commands);
 }
