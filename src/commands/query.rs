@@ -510,6 +510,7 @@ mod tests {
                 number: virtual_workspace_number,
                 native_workspace_id: 10,
                 active: true,
+                selected: true,
                 windows,
             }],
         }
