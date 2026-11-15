@@ -1421,6 +1421,18 @@ pub(crate) fn show_active_workspace(
             })
             .unwrap_or(*origin);
 
+        // Every visible strip sits at the top of the padded viewport. A parked
+        // origin can come from the raw display bounds (session restore, row
+        // promotion) or predate a padding change, so only its scroll offset is
+        // kept. `reshuffle_layout_strip` would correct the height later, but
+        // it skips a strip on the frame it is activated.
+        let origin = displays
+            .get(child.parent())
+            .ok()
+            .map_or(origin, |(display, dock)| {
+                origin.with_y(display.actual_display_bounds(dock, &config).min.y)
+            });
+
         if config.virtual_workspace_animations() {
             commands.reposition_entity(*activated, origin);
         } else {
