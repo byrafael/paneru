@@ -97,7 +97,14 @@ pub struct ActiveState {
 pub struct VirtualWorkspaceState {
     pub number: u32,
     pub native_workspace_id: u64,
+    /// Whether this row is the one on screen with keyboard focus. At most one
+    /// row in the document is active.
     pub active: bool,
+    /// Whether this row is the one its display shows. Every display has its own
+    /// selected row; the active row is also selected. A daemon from before this
+    /// field existed omits it, which decodes as `false`.
+    #[serde(default)]
+    pub selected: bool,
     pub windows: Vec<WindowState>,
 }
 
@@ -355,6 +362,37 @@ mod tests {
         }
     }
 
+    /// A daemon from before `selected` existed omits it; a newer client must
+    /// still decode its rows, over both JSON and `MessagePack`.
+    #[test]
+    fn virtual_workspace_without_selected_decodes_as_unselected() {
+        #[derive(Serialize)]
+        struct OldVirtualWorkspaceState {
+            number: u32,
+            native_workspace_id: u64,
+            active: bool,
+            windows: Vec<WindowState>,
+        }
+        let old = OldVirtualWorkspaceState {
+            number: 2,
+            native_workspace_id: 7,
+            active: true,
+            windows: Vec::new(),
+        };
+
+        let from_json: VirtualWorkspaceState =
+            serde_json::from_str(&serde_json::to_string(&old).unwrap()).unwrap();
+        let from_msgpack: VirtualWorkspaceState = MessagePack
+            .decode(&MessagePack.encode(&old).unwrap())
+            .unwrap();
+
+        for row in [from_json, from_msgpack] {
+            assert_eq!(row.number, 2);
+            assert!(row.active);
+            assert!(!row.selected);
+        }
+    }
+
     #[test]
     fn on_screen_is_the_visible_subset_ordered_left_to_right() {
         let window = |window_id, x, visible| WindowState {
@@ -384,6 +422,7 @@ mod tests {
                 number: 1,
                 native_workspace_id: 1,
                 active: true,
+                selected: true,
                 windows: vec![
                     window(1, 500, true),
                     window(2, 0, false),

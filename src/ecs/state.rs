@@ -753,6 +753,7 @@ impl QueryState for PaneruQueryState {
                 number,
                 native_workspace_id: strip.id(),
                 active: active_workspace,
+                selected: selected_workspace || active_workspace,
                 windows: row_windows,
             });
 
@@ -775,6 +776,7 @@ impl QueryState for PaneruQueryState {
                         number,
                         native_workspace_id: workspace_id,
                         active: false,
+                        selected: false,
                         windows: Vec::new(),
                     });
                 }

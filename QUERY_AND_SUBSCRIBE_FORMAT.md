@@ -50,18 +50,21 @@ Returns the complete state document.
       "number": 1,
       "native_workspace_id": 4,
       "active": false,
+      "selected": false,
       "windows": []
     },
     {
       "number": 2,
       "native_workspace_id": 4,
       "active": false,
+      "selected": false,
       "windows": []
     },
     {
       "number": 3,
       "native_workspace_id": 4,
       "active": true,
+      "selected": true,
       "windows": [
         {
           "window_id": 321,
@@ -89,18 +92,21 @@ Returns only the `virtual_workspaces` array from the complete state document.
     "number": 1,
     "native_workspace_id": 4,
     "active": false,
+    "selected": false,
     "windows": []
   },
   {
     "number": 2,
     "native_workspace_id": 4,
     "active": false,
+    "selected": false,
     "windows": []
   },
   {
     "number": 3,
     "native_workspace_id": 4,
     "active": true,
+    "selected": true,
     "windows": [
       {
         "window_id": 321,
@@ -149,7 +155,8 @@ Returns only the active display, workspace, and focused-window state.
 | `focused_window_title` | string or null | Title of the focused window, when known. |
 | `virtual_workspaces` | array | Virtual workspace rows known to Paneru. |
 | `number` | number | One-based virtual workspace number. |
-| `active` | boolean | Whether this virtual workspace is currently selected. |
+| `active` | boolean | Whether this virtual workspace is on screen with keyboard focus. At most one row is active. |
+| `selected` | boolean | Whether this virtual workspace is the one its display shows. Each display has one selected row; the active row is also selected. Absent from older daemons, so read a missing value as `false`. |
 | `windows` | array | Managed windows in this virtual workspace row. |
 | `window_id` | number | Window id. |
 | `bundle_id` | string | Bundle id for the owning application, or an empty string if unknown. |

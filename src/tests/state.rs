@@ -585,6 +585,57 @@ fn test_query_state_contract_exposes_active_virtual_workspace_and_windows() {
     );
 }
 
+/// A display that is not active still shows one of its rows. A status bar
+/// drawing per-display workspace indicators needs that row, not only the one
+/// with keyboard focus.
+#[test]
+fn test_query_state_marks_the_selected_row_of_an_inactive_display() {
+    use crate::tests::harness::TestHarness;
+
+    const OTHER_WORKSPACE_ID: u64 = TEST_WORKSPACE_ID + 100;
+    let mut harness = TestHarness::new().with_windows(1);
+
+    harness.app.update();
+
+    let world = harness.world();
+    let display_entity = world
+        .query_filtered::<Entity, With<crate::ecs::ActiveDisplayMarker>>()
+        .single(world)
+        .expect("active display should exist");
+    world.spawn((
+        LayoutStrip::new(TEST_WORKSPACE_ID, 1),
+        ChildOf(display_entity),
+    ));
+    world.spawn((
+        LayoutStrip::new(OTHER_WORKSPACE_ID, 0),
+        ChildOf(display_entity),
+    ));
+    world.spawn((
+        LayoutStrip::new(OTHER_WORKSPACE_ID, 1),
+        ChildOf(display_entity),
+        SelectedVirtualMarker,
+    ));
+
+    let state = extract_query_state(world).expect("query state extraction");
+    let row = |native, number| {
+        state
+            .virtual_workspaces
+            .iter()
+            .find(|row| row.native_workspace_id == native && row.number == number)
+            .unwrap_or_else(|| panic!("row {native}/{number} should exist"))
+    };
+
+    assert!(row(TEST_WORKSPACE_ID, 1).active);
+    assert!(
+        row(TEST_WORKSPACE_ID, 1).selected,
+        "the active row is selected"
+    );
+    assert!(!row(TEST_WORKSPACE_ID, 2).selected);
+    assert!(!row(OTHER_WORKSPACE_ID, 1).selected);
+    assert!(!row(OTHER_WORKSPACE_ID, 2).active);
+    assert!(row(OTHER_WORKSPACE_ID, 2).selected);
+}
+
 #[test]
 fn test_query_state_exposes_window_role_and_subrole() {
     use crate::tests::harness::TestHarness;
