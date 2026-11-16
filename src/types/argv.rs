@@ -90,6 +90,7 @@ fn parse_operation(argv: &[&str]) -> Result<Operation> {
             Some(arg) => ResizeDirection::parse(arg)?,
         }),
         "fullwidth" => Operation::FullWidth,
+        "fullscreen" => Operation::Fullscreen,
         "manage" => Operation::Manage,
         "equalize" => Operation::Equalize,
         "balance" => Operation::Balance,
@@ -199,6 +200,7 @@ impl Operation {
             // `SetWidth` comes from window rules, not from a command line; it has
             // no argv verb, so encode it as the equivalent full-width toggle.
             Operation::SetWidth(_) | Operation::FullWidth => owned(&["fullwidth"]),
+            Operation::Fullscreen => owned(&["fullscreen"]),
             Operation::ToNextDisplay(MoveFocus::Follow) => owned(&["nextdisplay"]),
             Operation::ToNextDisplay(MoveFocus::Stay) => owned(&["nextdisplaysend"]),
             Operation::Equalize => owned(&["equalize"]),
@@ -270,6 +272,7 @@ mod tests {
             Operation::ResizeVertical(ResizeDirection::Grow),
             Operation::ResizeVertical(ResizeDirection::Shrink),
             Operation::FullWidth,
+            Operation::Fullscreen,
             Operation::ToNextDisplay(MoveFocus::Follow),
             Operation::ToNextDisplay(MoveFocus::Stay),
             Operation::ToDisplay(Direction::North, MoveFocus::Follow),

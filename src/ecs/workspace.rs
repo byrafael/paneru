@@ -13,7 +13,7 @@ use bevy::ecs::system::{Commands, Local, ParamSet, Populated, Query, Res, ResMut
 use bevy::ecs::world::World;
 use bevy::time::common_conditions::on_timer;
 use std::collections::HashSet;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tracing::{Level, debug, error, instrument, warn};
 
 use super::{ActiveDisplayMarker, SpawnWindowTrigger};
@@ -25,14 +25,15 @@ use crate::ecs::focus::FocusHistory;
 use crate::ecs::layout::{LayoutStrip, PARKED_STRIP_SLIVER, origin_exposing};
 use crate::ecs::params::{ActiveDisplay, WindowCtx, Windows};
 use crate::ecs::{
-    ActiveWorkspaceMarker, DockPosition, FocusedMarker, Initializing, ManualStripOffset,
-    NativeFullscreenMarker, Position, RaiseWindow, RepositionMarker, Scrolling,
+    ActiveWorkspaceMarker, DockPosition, FocusedMarker, FullWidthMarker, Initializing,
+    ManualStripOffset, NativeFullscreenMarker, Position, RaiseWindow, RepositionMarker, Scrolling,
     SelectedVirtualMarker, SendMessageTrigger, SpawnCommandsExt, Timeout, Unmanaged,
 };
 use crate::errors::Result;
 use crate::events::{DestroySource, Event};
-use crate::manager::{Application, Display, Origin, Window, WindowManager};
+use crate::manager::{Application, Display, Origin, Size, Window, WindowManager};
 use crate::platform::{WinID, WorkspaceId};
+use crate::util::round_px;
 
 pub struct WorkspaceEventsPlugin;
 
@@ -117,6 +118,7 @@ impl Plugin for WorkspaceEventsPlugin {
                 switch_virtual_workspace_bind,
                 move_virtual_workspace_bind,
                 swap_virtual_workspace_bind,
+                fullscreen_workspace_bind,
             )
                 .in_set(super::PreUpdateSet::Dispatch),
         );
@@ -134,6 +136,7 @@ impl Plugin for WorkspaceEventsPlugin {
                 reap_empty_virtual_workspaces.run_if(reap_workspaces),
                 workspace_change_handler,
                 workspace_created_handler,
+                fullscreen_workspace_requests.before(handle_virtual_window_moves),
                 handle_virtual_window_moves,
                 detect_moved_windows.run_if(not(resource_exists::<Initializing>)),
             )
@@ -163,6 +166,34 @@ impl Plugin for WorkspaceEventsPlugin {
 pub(super) struct VirtualMoveMarker {
     pub target_virtual_index: u32,
     pub move_focus: MoveFocus,
+}
+
+/// The window asked to go full screen (or back) as a virtual workspace of its
+/// own. Acted on once the window is out of native full screen and back in the
+/// active strip; dropped if that has not happened by `expires`.
+#[derive(Component, Debug)]
+pub(crate) struct FullscreenRequest {
+    pub expires: Instant,
+}
+
+/// How long macOS gets to animate a window out of native full screen.
+const FULLSCREEN_REQUEST_BUDGET: Duration = Duration::from_secs(5);
+
+impl FullscreenRequest {
+    pub(crate) fn new() -> Self {
+        Self {
+            expires: Instant::now() + FULLSCREEN_REQUEST_BUDGET,
+        }
+    }
+}
+
+/// The window fills a virtual workspace of its own in place of native full
+/// screen. Going full screen again moves it back to `origin_virtual_index` at
+/// `width_ratio` of the display.
+#[derive(Component, Debug)]
+pub(crate) struct PaneruFullscreen {
+    pub origin_virtual_index: u32,
+    pub width_ratio: f64,
 }
 
 #[derive(Component, Debug)]
@@ -253,6 +284,7 @@ fn fullscreen_window_in_strip(
 }
 
 #[instrument(level = Level::DEBUG, skip_all, fields(trigger))]
+#[allow(clippy::too_many_arguments)]
 fn workspace_change_handler(
     mut messages: MessageReader<Event>,
     windows: Windows,
@@ -264,6 +296,7 @@ fn workspace_change_handler(
     )>,
     active_display: Single<(&Display, Entity), With<ActiveDisplayMarker>>,
     window_manager: Res<WindowManager>,
+    config: Res<Config>,
     mut commands: Commands,
 ) {
     if !messages
@@ -314,6 +347,19 @@ fn workspace_change_handler(
         && let Ok(original_index) = old_strip.index_of(fullscreen_window)
     {
         debug!("workspace_change: space={workspace_id} fullscreen");
+
+        if config.fullscreen_workspaces() {
+            // Take the window back out of native full screen and keep its
+            // strip active; `fullscreen_workspace_requests` gives it its own
+            // workspace once macOS has animated back.
+            if let Some(window) = windows.get(fullscreen_window) {
+                window.exit_full_screen();
+            }
+            if let Ok(mut entity_commands) = commands.get_entity(fullscreen_window) {
+                entity_commands.try_insert(FullscreenRequest::new());
+            }
+            return;
+        }
 
         let fullscreen_marker = NativeFullscreenMarker {
             layout_strip: old_strip_entity,
@@ -1208,6 +1254,135 @@ fn swap_virtual_workspace_bind(
         return;
     };
     std::mem::swap(&mut active_strip.virtual_index, &mut other.virtual_index);
+}
+
+/// The workspace a window from `strip` goes full screen in: the first empty
+/// workspace after it (Paneru keeps empty workspace numbers), otherwise a new
+/// one after the last.
+fn fullscreen_target(
+    strip: &LayoutStrip,
+    workspaces: &Query<&LayoutStrip, Without<NativeFullscreenMarker>>,
+) -> u32 {
+    let rows = || workspaces.iter().filter(|row| row.id() == strip.id());
+    rows()
+        .filter(|row| row.virtual_index > strip.virtual_index && row.len() == 0)
+        .map(|row| row.virtual_index)
+        .min()
+        .unwrap_or_else(|| {
+            rows()
+                .map(|row| row.virtual_index)
+                .max()
+                .unwrap_or(strip.virtual_index)
+                + 1
+        })
+}
+
+/// `window_fullscreen`: toggles the focused window between a virtual workspace
+/// of its own and its previous place, as native full screen does with
+/// `fullscreen_workspaces`. A window in native full screen leaves it first.
+fn fullscreen_workspace_bind(
+    mut messages: MessageReader<Event>,
+    windows: Windows,
+    mut commands: Commands,
+) {
+    if filter_window_operations(&mut messages, |op| matches!(op, Operation::Fullscreen))
+        .next()
+        .is_none()
+    {
+        return;
+    }
+    let Some((window, entity)) = windows.focused() else {
+        return;
+    };
+    if window.is_full_screen() {
+        window.exit_full_screen();
+    }
+    if let Ok(mut entity_commands) = commands.get_entity(entity) {
+        entity_commands.try_insert(FullscreenRequest::new());
+    }
+}
+
+/// Acts on [`FullscreenRequest`]s whose window is out of native full screen
+/// and in the active strip. A window going full screen fills the screen in a
+/// new workspace after the last one (or in place, when it is alone in its
+/// workspace); one already there returns to its workspace and width.
+#[instrument(level = Level::DEBUG, skip_all)]
+fn fullscreen_workspace_requests(
+    requests: Populated<(Entity, &FullscreenRequest, Option<&PaneruFullscreen>), With<Window>>,
+    windows: Windows,
+    active_display: ActiveDisplay,
+    workspaces: Query<&LayoutStrip, Without<NativeFullscreenMarker>>,
+    config: Res<Config>,
+    mut commands: Commands,
+) {
+    let strip = active_display.active_strip();
+    let viewport = active_display.actual_bounds(&config);
+    let now = Instant::now();
+
+    for (entity, request, fullscreen) in &requests {
+        let Some(window) = windows.get(entity) else {
+            continue;
+        };
+        let Ok(mut entity_commands) = commands.get_entity(entity) else {
+            continue;
+        };
+        if now > request.expires {
+            warn!("window {entity} did not leave native full screen; giving up");
+            entity_commands.try_remove::<FullscreenRequest>();
+            continue;
+        }
+        // macOS is still animating out of full screen, or back to the strip.
+        if window.is_full_screen() || !strip.contains(entity) {
+            continue;
+        }
+        entity_commands.try_remove::<FullscreenRequest>();
+
+        if let Some(fullscreen) = fullscreen {
+            debug!(
+                "window {entity} leaves full screen for virtual workspace {}",
+                fullscreen.origin_virtual_index
+            );
+            entity_commands.try_remove::<(PaneruFullscreen, FullWidthMarker)>();
+            let width = round_px(fullscreen.width_ratio * f64::from(viewport.width()));
+            commands.resize_entity(entity, Size::new(width, viewport.height()));
+            if fullscreen.origin_virtual_index != strip.virtual_index
+                && let Ok(mut entity_commands) = commands.get_entity(entity)
+            {
+                entity_commands.try_insert(VirtualMoveMarker {
+                    target_virtual_index: fullscreen.origin_virtual_index,
+                    move_focus: MoveFocus::Follow,
+                });
+            }
+            commands.reshuffle_around(entity);
+            continue;
+        }
+
+        let width_ratio = windows
+            .full_width(entity)
+            .map(|marker| marker.width_ratio)
+            .or_else(|| windows.width_ratio(entity))
+            .unwrap_or(0.5);
+        entity_commands.try_insert((
+            PaneruFullscreen {
+                origin_virtual_index: strip.virtual_index,
+                width_ratio,
+            },
+            FullWidthMarker { width_ratio },
+        ));
+        commands.resize_entity(entity, Size::new(viewport.width(), viewport.height()));
+        // A window alone in its workspace already has one of its own.
+        if strip.len() > 1 {
+            let target_virtual_index = fullscreen_target(strip, &workspaces);
+            debug!("window {entity} goes full screen in virtual workspace {target_virtual_index}");
+            if let Ok(mut entity_commands) = commands.get_entity(entity) {
+                entity_commands.try_insert(VirtualMoveMarker {
+                    target_virtual_index,
+                    move_focus: MoveFocus::Follow,
+                });
+            }
+        }
+        commands.reshuffle_around(entity);
+    }
 }
 
 /// Handles the keybinding to move windows between virtual workspaces.

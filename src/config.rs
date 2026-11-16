@@ -983,6 +983,14 @@ impl Config {
             .create_virtual_workspace_automatically
             .is_some_and(|enabled| enabled)
     }
+
+    /// Whether a window entering native macOS full screen is given a virtual
+    /// workspace of its own instead. Default: disabled.
+    pub fn fullscreen_workspaces(&self) -> bool {
+        self.options()
+            .fullscreen_workspaces
+            .is_some_and(|enabled| enabled)
+    }
     pub fn menubar_enabled(&self) -> bool {
         self.inner()
             .decorations
@@ -1422,6 +1430,11 @@ pub struct MainOptions {
     /// If a non-enumerated (e.g. South) gesture or window movement would target a nonexistent
     /// virtual workspace, create the workspace automatically.
     pub create_virtual_workspace_automatically: Option<bool>,
+
+    /// Instead of native macOS full screen, which puts the window on a Space
+    /// of its own, take the window out of it and give it a virtual workspace
+    /// of its own, filling the screen. Going full screen again puts it back.
+    pub fullscreen_workspaces: Option<bool>,
 }
 
 /// Returns a default set of column widths.

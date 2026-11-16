@@ -303,6 +303,9 @@ pub trait WindowApi: Send + Sync {
     fn is_alive(&self) -> bool;
     fn is_minimized(&self) -> bool;
     fn is_full_screen(&self) -> bool;
+    /// Asks the app to take the window out of native macOS full screen.
+    /// Best-effort: macOS animates back to the window's Space afterwards.
+    fn exit_full_screen(&self);
     fn reposition(&mut self, origin: Origin);
     fn resize(&mut self, size: Size);
     fn update_frame(&mut self) -> Result<IRect>;
@@ -784,6 +787,23 @@ impl WindowApi for WindowOS {
 
     fn is_full_screen(&self) -> bool {
         self.ax_element.full_screen().unwrap_or(false)
+    }
+
+    #[instrument(level = Level::DEBUG)]
+    fn exit_full_screen(&self) {
+        let Some(value) = (unsafe { kCFBooleanFalse }) else {
+            return;
+        };
+        let ax_error = unsafe {
+            AXUIElementSetAttributeValue(
+                self.ax_element.as_ptr(),
+                CFString::from_static_str("AXFullScreen").as_ref(),
+                value,
+            )
+        };
+        if let Err(err) = ax_error.to_result("set AXFullScreen") {
+            warn!("unable to leave full screen: {err}");
+        }
     }
 
     #[instrument(level = Level::TRACE)]

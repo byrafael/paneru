@@ -674,6 +674,7 @@ fn config_to_lua_table(lua: &Lua, config: &Config) -> mlua::Result<Table> {
         insert_windows_mid_strip: _,
         create_virtual_workspace_automatically: _,
         display_fallthrough: _,
+        fullscreen_workspaces: _,
     } = &raw_opts;
 
     options.set("focus_follows_mouse", config.focus_follows_mouse())?;
@@ -711,6 +712,7 @@ fn config_to_lua_table(lua: &Lua, config: &Config) -> mlua::Result<Table> {
         "create_virtual_workspace_automatically",
         config.create_workspace_automatically(),
     )?;
+    options.set("fullscreen_workspaces", config.fullscreen_workspaces())?;
     root.set("options", options)?;
 
     let PaddingOptions {

@@ -213,6 +213,7 @@ fn window_table(lua: &Lua, dispatch: &Dispatch) -> Result<Table> {
         ("stack", Operation::Stack(true)),
         ("unstack", Operation::Stack(false)),
         ("full_width", Operation::FullWidth),
+        ("fullscreen", Operation::Fullscreen),
         ("grow", Operation::Resize(ResizeDirection::Grow)),
         ("shrink", Operation::Resize(ResizeDirection::Shrink)),
         (

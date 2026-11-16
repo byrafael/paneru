@@ -41,6 +41,8 @@ pub(crate) struct MockWindowData {
     pub(crate) subrole: String,
     pub(crate) identifier: String,
     pub(crate) is_full_screen: bool,
+    /// How often Paneru asked the window to leave native full screen.
+    pub(crate) exit_full_screen_requests: u32,
     pub(crate) border_radius: Option<f64>,
     pub(crate) horizontal_padding: i32,
     pub(crate) vertical_padding: i32,
@@ -61,6 +63,7 @@ impl Default for MockWindowData {
             subrole: "AXStandardWindow".to_string(),
             identifier: "testid".to_string(),
             is_full_screen: false,
+            exit_full_screen_requests: 0,
             border_radius: None,
             horizontal_padding: 0,
             vertical_padding: 0,
@@ -297,6 +300,15 @@ impl MockState {
     }
 
     #[allow(unused)]
+    /// How often Paneru asked window `id` to leave native full screen.
+    pub(crate) fn exit_full_screen_requests(&self, id: WinID) -> u32 {
+        self.inner
+            .force_read()
+            .windows
+            .get(&id)
+            .map_or(0, |window| window.exit_full_screen_requests)
+    }
+
     pub fn update_app(&self, pid: Pid, f: impl FnOnce(&mut MockAppData)) {
         let mut inner = self.inner.force_write();
         if let Some(a) = inner.apps.get_mut(&pid) {
@@ -616,6 +628,16 @@ impl MockState {
                 .windows
                 .get(&id)
                 .is_some_and(|w| w.is_full_screen)
+        });
+
+        // Leaving full screen takes effect at once here. The test moves the
+        // window back to its Space, as macOS would after its animation.
+        let s = self.clone();
+        mw.expect_exit_full_screen().returning(move || {
+            if let Some(window) = s.inner.force_write().windows.get_mut(&id) {
+                window.is_full_screen = false;
+                window.exit_full_screen_requests += 1;
+            }
         });
 
         let s = self.clone();

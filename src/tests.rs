@@ -1,5 +1,6 @@
 mod display;
 mod focus_or_virtual;
+mod fullscreen_workspace;
 mod harness;
 mod interaction;
 mod mocks;
