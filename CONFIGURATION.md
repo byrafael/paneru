@@ -42,6 +42,7 @@ General behavior settings for the window manager.
 | `virtual_workspace_animations` | Boolean | `false` | If enabled, Paneru will animate virtual workspace swaps. Off by default, because people use virtual workspaces due to the slow animation of the native macOS workspaces. |
 | `insert_windows_mid_strip` | Boolean | `false` | When moving a window to another virtual workspace, insert it at the column matching its current on-screen position (keeping it where you see it and shifting the rest) instead of appending it to the end of the destination strip. |
 | `create_virtual_workspace_automatically` | Boolean | `false` | Automatically creates a new virtual workspace when using `window_virtual_south `or Southward gesture controls. |
+| `fullscreen_workspaces` | Boolean | `false` | Replaces native macOS full screen with a virtual workspace. A window entering full screen (the green button, `⌃⌘F`, or a page's video) is taken back out of its native full-screen Space and moved, filling the screen, into a new virtual workspace after the last one and shown. A window alone in its workspace fills it in place. Going full screen again returns it to its workspace at its previous width. macOS still plays its full-screen animation first; bind `window_fullscreen` to skip it. |
 
 ---
 
@@ -253,6 +254,7 @@ https://github.com/karinushka/paneru/blob/3790b01f8d65df5d9000142db7cf25f9270dcc
 | `window_vertical_grow` | Alias for `window_vertical_resize`. |
 | `window_vertical_shrink` | Cycle a stacked window through preset heights (Shrink). |
 | `window_fullwidth` | Toggle full-width mode. |
+| `window_fullscreen` | Toggle the focused window between filling a virtual workspace of its own and its previous workspace and width, as `fullscreen_workspaces` does for native full screen. Works whether or not that option is on. |
 | `window_manage` | Toggle between tiled and floating state. |
 | `window_stack` | Stack the current window into the column on the left. |
 | `window_unstack` | Pull a window out of a stack into its own column. |

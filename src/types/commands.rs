@@ -232,6 +232,9 @@ pub enum Operation {
     SetWidth(f64),
     /// Toggles the focused window to full width or a preset width.
     FullWidth,
+    /// Toggles the focused window between filling a virtual workspace of its
+    /// own and its previous place and width.
+    Fullscreen,
     /// Moves the focused window to the next available display.
     ToNextDisplay(MoveFocus),
     /// Distributes heights equally among windows in the focused stack.
